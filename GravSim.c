@@ -304,7 +304,6 @@ void drawSys()
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDisable(GL_CULL_FACE);
 	
-	//*
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glVertexPointer(MAX_DIMS,GL_DOUBLE,0,positions);
 	
@@ -312,39 +311,31 @@ void drawSys()
 	{
 		glPushName(i);
 		glColor3f(colors[i%3],colors[(i+1)%3],colors[(i+2)%3]);
-		glPointSize(1);//sizes[i]*scale);
+		glPointSize(sizes[i]*scale);
 		glDrawArrays(GL_POINTS,i*TICK_MEMORY,toDraw);
 		glPopName();
 	}
 	
 	glDisableClientState(GL_VERTEX_ARRAY);
-	//*/
-	
-	
-	/*
-	for(int i = 0; i < body_count; i++)
-	{
-		glPushName(i);
-		glColor3f(colors[i%3],colors[(i+1)%3],colors[(i+2)%3]);
-		glPointSize(1);//sizes[i]*scale);
-		for(int j =0; j<toDraw;j++){
-			glBegin(GL_POINTS);
-			glVertex3f(positions[(i*TICK_MEMORY+j)*MAX_DIMS],positions[(i*TICK_MEMORY+j)*MAX_DIMS+1],positions[(i*TICK_MEMORY+j)*MAX_DIMS+2]);
-			glEnd();
-		}
-		glPopName();
-	}
-	//*/
+
 	
 	glEnable(GL_CULL_FACE);
 	glDisable(GL_BLEND);
 	glDisable(GL_POINT_SMOOTH);
 }
 
+void drawTime()
+{
+	static char buf[128];
+	sprintf(buf,"Time: %G / %G by %G",t,end_time,dt);
+	glRasterPos2i(-100,100);
+	glColor3f(1.0f, 1.0f, 0.3f);
+	for(char *b=buf;*b;b++) glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, *b);
+}
 
-/* Callback function for drawing */
+/* Callback functions for drawing */
 
-void display(void)
+void tdisplay(int done)
 {
    GLERROR;
 
@@ -353,11 +344,14 @@ void display(void)
 	stepSys(TICKS_PER);
 	//printf("Drawing system\n");
 	drawSys();
+	drawTime();
 	//printf("next frame\n\n");
    glutSwapBuffers();
 
    GLERROR;
+	if(!done) glutTimerFunc(17,tdisplay,t >= end_time);
 }
+void display(){ tdisplay(1); /* Don't schedule extra timers */ }
 
 /* Callback function for pick-event handling from ZPR */
 
@@ -384,9 +378,9 @@ int main(int argc, char *argv[])
     /* Configure GLUT callback functions */
 
     glutDisplayFunc(display);
-	glutIdleFunc(display);
+	glutTimerFunc(17,tdisplay,t >= end_time);
 
-    glScalef(.01,.01,.01);
+    glScalef(.008,.008,.008);
 
     /* Configure ZPR module */
 
