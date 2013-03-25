@@ -294,27 +294,26 @@ void stepSys(int n){
 void drawSys()
 {
 	static float colors[3] = {0.9,0.3,0.6};
+	double scale = pow(determinant(getMatrix()),1/3.);
+	int toDraw = ((t / dt) / operiod > ooperiod) ? ooperiod : ooline;
+	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glEnable(GL_POINT_SMOOTH);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDisable(GL_CULL_FACE);
-	/*
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(MAX_DIMS,GL_DOUBLE,3*sizeof(double),positions);
 	
-	double scale = pow(determinant(getMatrix()),1/3.);
-	int toDraw = ((t / dt) / operiod > ooperiod) ? ooperiod : ooline;
-	printf("Trying to draw %d / %d slots at scale %f\n",toDraw, ooperiod,scale);
+	//*
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glVertexPointer(MAX_DIMS,GL_DOUBLE,0,positions);
+	
 	for(int i = 0; i < body_count; i++)
 	{
 		glPushName(i);
 		glColor3f(colors[i%3],colors[(i+1)%3],colors[(i+2)%3]);
 		glPointSize(1);//sizes[i]*scale);
-		printf("Drawing point size %f at %f %f %f\n",
-			   2.,positions[(i*TICK_MEMORY+ooline)*MAX_DIMS],positions[(i*TICK_MEMORY+ooline)*MAX_DIMS+1],positions[(i*TICK_MEMORY+ooline)*MAX_DIMS+2]);
-		glDrawArrays(GL_POINTS,i*MAX_DIMS*TICK_MEMORY,toDraw);
+		glDrawArrays(GL_POINTS,i*TICK_MEMORY,toDraw);
 		glPopName();
 	}
 	
@@ -322,16 +321,12 @@ void drawSys()
 	//*/
 	
 	
-	
-	double scale = pow(determinant(getMatrix()),1/3.);
-	int toDraw = ((t / dt) / operiod > ooperiod) ? ooperiod : ooline;
-	//printf("Trying to draw %d / %d slots at scale %f\n",toDraw, ooperiod,scale);
-	//printf("%f >? %d\n",(t / dt) / operiod,ooperiod);
+	/*
 	for(int i = 0; i < body_count; i++)
 	{
 		glPushName(i);
 		glColor3f(colors[i%3],colors[(i+1)%3],colors[(i+2)%3]);
-		glPointSize(sizes[i]*scale);
+		glPointSize(1);//sizes[i]*scale);
 		for(int j =0; j<toDraw;j++){
 			glBegin(GL_POINTS);
 			glVertex3f(positions[(i*TICK_MEMORY+j)*MAX_DIMS],positions[(i*TICK_MEMORY+j)*MAX_DIMS+1],positions[(i*TICK_MEMORY+j)*MAX_DIMS+2]);
@@ -339,7 +334,7 @@ void drawSys()
 		}
 		glPopName();
 	}
-	
+	//*/
 	
 	glEnable(GL_CULL_FACE);
 	glDisable(GL_BLEND);
