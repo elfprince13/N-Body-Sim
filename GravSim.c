@@ -7,7 +7,7 @@
 #define DIMS 2
 #define MAX_DIMS 3
 #define TICK_MEMORY 1000000
-#define TICKS_PER 1000
+#define TICKS_PER 10
 
 
 // Assume this is correct for now :)
@@ -271,7 +271,7 @@ void updateAABB(AABB * bb, Vector * v)
 		l = getVField(&(bb->lowX), i);
 		h = getVField(&(bb->highX), i);
 		if(x < l || isnan(l)) setVField(&(bb->lowX), i, x - sqEP);
-		if(x > l || isnan(h)) setVField(&(bb->highX), i, x + sqEP);
+		if(x > h || isnan(h)) setVField(&(bb->highX), i, x + sqEP);
 	}
 }
 
@@ -302,6 +302,7 @@ void updateMasses(QuadTree * node, Body * b)
 		// Don't *ever* do this to a real body
 		// Only virtual bodies for interior nodes
 		ob->x = nbc;
+		ob->p = sum(ob->p,b->p);
 		ob->m = nm;
 	} else {
 		node->contents = b;
@@ -329,13 +330,16 @@ void returnDummyBody(QuadTree * qt)
 
 QuadTree * freeTree(QuadTree * node)
 {
-	returnDummyBody(node);
-	FREE_CHILDREN(node);
-	free(node);
+	if(node != NULL)
+	{
+		returnDummyBody(node);
+		FREE_CHILDREN(node);
+		free(node);
+	}
 	return NULL;
 }
 
-QuadTree * initEmpty()
+QuadTree * initEmptyQuad()
 {
 	QuadTree * ret = calloc(1, sizeof(QuadTree));
 	SET_NO_CHILDREN(ret);
@@ -348,7 +352,7 @@ QuadTree * initEmpty()
 
 QuadTree * initInQuad(QuadTree * node, int quad)
 {
-	QuadTree * ret = initEmpty();
+	QuadTree * ret = initEmptyQuad();
 	ret->parent = node;
 	Vector m = mid(&(node->bounds));
 	Vector c = ZERO_VECTOR;
@@ -359,6 +363,7 @@ QuadTree * initInQuad(QuadTree * node, int quad)
 		setVField(&lx, i, min(getVField(&m, i),getVField(&c, i)));
 		setVField(&hx, i, max(getVField(&m, i),getVField(&c, i)));
 	}
+	ret->bounds = (AABB){.lowX = lx, .highX = hx};
 	return ret;
 	
 	
@@ -370,83 +375,45 @@ void initChildren(QuadTree * node)
 	
 }
 
-void splitNodeB(QuadTree * node, Body * b)
+void insertBody(QuadTree*,Body*);
+void splitNode(QuadTree * node, Body * b)
 {
-	if(HAS_NO_CHILDREN(node))
-	{
-		if(node->contents == NULL){
-			node->contents = b;
-		} else{
-			initChildren(node);
-			
-		}
-	}
-	if(node->contents != b)
-	{
-		
-	}
-}
-
-void splitNodeQ(QuadTree * node, QuadTree * descend)
-{
+	Body * oldb = node->contents;
+	initChildren(node);
+	node->contents = getDummyBody();
+	Vector nmid = mid(&(node->bounds));
 	
+	insertBody(node->children[(oldb->x.e1 > nmid.e1)][(oldb->x.e2 > nmid.e2)], oldb);
+	insertBody(node->children[(b->x.e1 > nmid.e1)][(b->x.e2 > nmid.e2)], b);
 }
 
-// Build a region-bounding quad-tree bottom up
-// More complex branching
-// But saves a lead-in time of N building initial AABB
-QuadTree * insertBody(QuadTree * node, Body * b)
+void insertBody(QuadTree * node, Body * b)
 {
-	if(node == NULL)
-	{
-		node = calloc(1, sizeof(QuadTree));
-		node->parent = NULL;
-		SET_NO_CHILDREN(node);
-		
-		node->bounds = makeNullBB();
-		
+	char buf[5][512];
+	Vector nmid = mid(&(node->bounds));
+	printf("%p (%s %G %G) split at %s and %d\nInserting %p (%s %G %G)\n\n",(void *)node->contents,
+		   node->contents?stringify(node->contents->x, buf[0]):"",
+		   //node->contents?stringify(node->contents->p, buf[1]):"",
+		   node->contents?node->contents->m:0,
+		   node->contents?node->contents->r:0,
+		   stringify(nmid,buf[2]),HAS_NO_CHILDREN(node),
+		   (void *)b,
+		   stringify(b->x, buf[3]),
+		   //stringify(b->p, buf[4]),
+		   b->m,
+		   b->r);
+	if(node->contents == NULL){
 		node->contents = b;
-		updateAABB(&(node->bounds), &(b->x));
-	} else if(node->parent == NULL && HAS_NO_CHILDREN(node)) {
+		if(node->parent != NULL) updateMasses(node->parent, b);
+	}
+	else if(HAS_NO_CHILDREN(node)) {
 		// Nobody here but us chickens
-		updateAABB(&(node->bounds), &(b->x));
-		
-		// Split Node
-		splitNodeB(node, b);
-		
-	} else if(intersectsAABB(&(node->bounds), &(b->x))){
-		// Add to a child or split
-		if(HAS_NO_CHILDREN(node))
-		{
-			splitNodeB(node, b);
-		} else{
-			// Safe to discard return value,
-			// since safely inside!
+		splitNode(node, b);
+	} else{
 			Vector nmid = mid(&(node->bounds));
 			insertBody(node->children	[(b->x.e1 > nmid.e1)]
 										[(b->x.e2 > nmid.e2)], b);
-		}
-	} else {
-		// reparent the tree
-		Vector cdim = dim(&(node->bounds));
-		Vector  ndim, dimr;
-		double nsubd;
-		QuadTree * nrent = calloc(1, sizeof(QuadTree));
-		SET_NO_CHILDREN(nrent);
-		nrent->bounds = node->bounds;
-		updateAABB(&(nrent->bounds), &(b->x));
-		
-		ndim =dim(&(nrent->bounds));
-		nsubd = max(ceil(log2(ndim.e1 / cdim.e1)),ceil(log2(ndim.e2 / cdim.e2)));
-		dimr = scale(pow(2,nsubd),cdim);
-		
-		redimAABB(&(nrent->bounds), &(node->bounds), &dimr);
-		splitNodeQ(nrent, node);
-		node = nrent;
-		
 	}
-	
-	return node;
 }
 
 
@@ -551,7 +518,7 @@ void stepSys(int n){
         GLenum code = glGetError();                                \
         while (code!=GL_NO_ERROR)                                  \
         {                                                          \
-            printf("%s\n",(char *) gluErrorString(code));          \
+            printf("%s (%d)\n",(char *) gluErrorString(code), code);          \
                 code = glGetError();                               \
         }                                                          \
     }
@@ -594,26 +561,24 @@ void drawTree(QuadTree * node,int depth)
 	static float colors[3] = {0.9,0.3,0.6};
 	int i = 0;
 	
+	
 	if(node == NULL) return;
 	
 	Vector corners[2][2] = {{	corner(&(node->bounds.lowX),&(node->bounds.highX),LOWERH | LEFTH ),
 								corner(&(node->bounds.lowX),&(node->bounds.highX),UPPERH | LEFTH )},
 							{	corner(&(node->bounds.lowX),&(node->bounds.highX),LOWERH | RIGHTH ),
 								corner(&(node->bounds.lowX),&(node->bounds.highX),UPPERH | RIGHTH )}};
-	copyVector(verts, &corners[0][0], &i);
-	copyVector(verts, &corners[0][1], &i);
-	copyVector(verts, &corners[1][0], &i);
-	copyVector(verts, &corners[1][1], &i);
+	copyVectorSmaller(verts, &corners[0][0], &i);
+	copyVectorSmaller(verts, &corners[0][1], &i);
+	copyVectorSmaller(verts, &corners[1][1], &i);
+	copyVectorSmaller(verts, &corners[1][0], &i);
 	
 	glDisable(GL_CULL_FACE);
-	
 	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(MAX_DIMS*4,GL_DOUBLE,0,verts);
-	
+	glVertexPointer(3,GL_DOUBLE,0,verts);
 	glColor3f(colors[depth%3],colors[(depth+1)%3],colors[(depth+2)%3]);
 	glLineWidth(1);
 	glDrawElements(GL_LINES, 4, GL_UNSIGNED_BYTE, indices);
-	
 	glDisableClientState(GL_VERTEX_ARRAY);
 	
 	
@@ -635,7 +600,7 @@ void drawTime()
 }
 
 /* Callback functions for drawing */
-static QuadTree * testnode;
+static QuadTree * testnode=NULL;
 void tdisplay(int done)
 {
    GLERROR;
@@ -645,7 +610,29 @@ void tdisplay(int done)
 	stepSys(TICKS_PER);
 	//printf("Drawing system\n");
 	drawSys();
+	
+	//*
+	char buf[3][512];
+	testnode = initEmptyQuad();
+	for(int i = 0; i < body_count; i++){
+		printf("Inserting %s into %s -> %s\n",
+			   stringify(gravsys.bodies[i]->x, buf[0]),
+			   stringify(testnode->bounds.lowX, buf[1]),
+			   stringify(testnode->bounds.highX, buf[2]));
+		updateAABB(&(testnode->bounds), &(gravsys.bodies[i]->x));
+	}
+	printf("Finished with %s -> %s\n",
+			stringify(testnode->bounds.lowX, buf[1]),
+			stringify(testnode->bounds.highX, buf[2]));
+	printf("Building tree\n");
+	insertBody(testnode, gravsys.bodies[0]);
+	insertBody(testnode, gravsys.bodies[1]);
+	insertBody(testnode, gravsys.bodies[2]);
+	printf("Done\n");
 	drawTree(testnode, 0);
+	freeTree(testnode);
+	testnode=NULL;
+	//*/
 	drawTime();
 	//printf("next frame\n\n");
    glutSwapBuffers();
@@ -707,8 +694,6 @@ int main(int argc, char *argv[])
 	
 	printf("System initialized \n");
 	
-	testnode = insertBody(NULL, gravsys.bodies[0]);
-	testnode = insertBody(testnode, gravsys.bodies[1]);
 	
 	dt = 1000;
 	t = 0;
