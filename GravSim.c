@@ -6,8 +6,8 @@
 
 #define DIMS 2
 #define MAX_DIMS 3
-#define TICK_MEMORY 1000000
-#define TICKS_PER 10
+#define TICK_MEMORY 10/*00000*/
+#define TICKS_PER 100
 
 
 // Assume this is correct for now :)
@@ -127,7 +127,7 @@ typedef struct _qtNode{ AABB bounds; Body * contents; /* contents may be virtual
 // System parameters
 //--------------------------------------------------
 static State gravsys;
-static int body_count = 3;
+static int body_count = 4;
 
 static double dt = 10;//.1;
 static double t = 0;
@@ -389,19 +389,6 @@ void splitNode(QuadTree * node, Body * b)
 
 void insertBody(QuadTree * node, Body * b)
 {
-	char buf[5][512];
-	Vector nmid = mid(&(node->bounds));
-	printf("%p (%s %G %G) split at %s and %d\nInserting %p (%s %G %G)\n\n",(void *)node->contents,
-		   node->contents?stringify(node->contents->x, buf[0]):"",
-		   //node->contents?stringify(node->contents->p, buf[1]):"",
-		   node->contents?node->contents->m:0,
-		   node->contents?node->contents->r:0,
-		   stringify(nmid,buf[2]),HAS_NO_CHILDREN(node),
-		   (void *)b,
-		   stringify(b->x, buf[3]),
-		   //stringify(b->p, buf[4]),
-		   b->m,
-		   b->r);
 	if(node->contents == NULL){
 		node->contents = b;
 		if(node->parent != NULL) updateMasses(node->parent, b);
@@ -480,7 +467,7 @@ int teardownSystem(State s){
 void stepSys(int n){
 	double h_tot;
 	Vector xdot[body_count],pdot[body_count];
-	char buf[64][64];
+	//char buf[64][64];
 	for(;t < end_time && n > 0; t += dt, oline = (oline + 1) % operiod, ooline = (ooline + !oline) % ooperiod, n--){
 		h_tot = gravsys.hamiltonian(gravsys.bodies,gravsys.n,ALL_BODIES);
 		h_drift = h_init - h_tot;
@@ -541,7 +528,7 @@ void drawSys()
 	{
 		glPushName(i);
 		glColor3f(colors[i%3],colors[(i+1)%3],colors[(i+2)%3]);
-		glPointSize(sizes[i]*scale);
+		glPointSize(2);//sizes[i]*scale);
 		glDrawArrays(GL_POINTS,i*TICK_MEMORY,toDraw);
 		glPopName();
 	}
@@ -557,8 +544,8 @@ void drawSys()
 void drawTree(QuadTree * node,int depth)
 {
 	static double verts[MAX_DIMS * 4];
-	static unsigned char indices[8] = {0,1,1,2,2,3,3,0};
-	static float colors[3] = {0.9,0.3,0.6};
+	static unsigned char indices[/*8*/5] = {0,1,2,3,0};//{0,1,1,2,2,3,3,0};
+	static float colors[10] = {0.9,0.,0.6,0.3,0.3,0.6,0.,0.9,0.3,0.6};
 	int i = 0;
 	
 	
@@ -576,9 +563,9 @@ void drawTree(QuadTree * node,int depth)
 	glDisable(GL_CULL_FACE);
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glVertexPointer(3,GL_DOUBLE,0,verts);
-	glColor3f(colors[depth%3],colors[(depth+1)%3],colors[(depth+2)%3]);
+	glColor3f(colors[depth%10],colors[(depth+1)%10],colors[(depth+2)%10]);
 	glLineWidth(1);
-	glDrawElements(GL_LINES, 4, GL_UNSIGNED_BYTE, indices);
+	glDrawElements(GL_LINE_STRIP, 5, GL_UNSIGNED_BYTE, indices);
 	glDisableClientState(GL_VERTEX_ARRAY);
 	
 	
@@ -612,23 +599,9 @@ void tdisplay(int done)
 	drawSys();
 	
 	//*
-	char buf[3][512];
 	testnode = initEmptyQuad();
-	for(int i = 0; i < body_count; i++){
-		printf("Inserting %s into %s -> %s\n",
-			   stringify(gravsys.bodies[i]->x, buf[0]),
-			   stringify(testnode->bounds.lowX, buf[1]),
-			   stringify(testnode->bounds.highX, buf[2]));
-		updateAABB(&(testnode->bounds), &(gravsys.bodies[i]->x));
-	}
-	printf("Finished with %s -> %s\n",
-			stringify(testnode->bounds.lowX, buf[1]),
-			stringify(testnode->bounds.highX, buf[2]));
-	printf("Building tree\n");
-	insertBody(testnode, gravsys.bodies[0]);
-	insertBody(testnode, gravsys.bodies[1]);
-	insertBody(testnode, gravsys.bodies[2]);
-	printf("Done\n");
+	for(int i = 0; i < body_count; updateAABB(&(testnode->bounds), &(gravsys.bodies[i++]->x)));
+	for(int i = 0; i < body_count; insertBody(testnode, gravsys.bodies[i++]));
 	drawTree(testnode, 0);
 	freeTree(testnode);
 	testnode=NULL;
@@ -685,10 +658,10 @@ int main(int argc, char *argv[])
 	sizes = calloc(body_count,sizeof(double));
 	bodyIndices = calloc(2*body_count,sizeof(int));
 	
-	double mass[] = {1.9891e30,1.8986e27,3.3022e23};
-	double radius[] = {696342e3,69911e3,2439.7e3};
-	Vector position[] = {ZERO_VECTOR,(Vector){.e1=778547200e3,.e2=0,.e3=0},(Vector){.e1=57909100e3,.e2=0,.e3=0}};
-	Vector momentum[] = {ZERO_VECTOR,(Vector){.e1=0,.e2=13.07e3 * mass[1],.e3=0},(Vector){.e1=0,.e2=47.87e3 * mass[2],.e3=0}};
+	double mass[] = {1.9891e30,1.8986e27,6.4185e23,3.3022e23};
+	double radius[] = {696342e3,69911e3,3386e3,2439.7e3};
+	Vector position[] = {ZERO_VECTOR,(Vector){.e1=778547200e3,.e2=0,.e3=0},(Vector){.e1=227939100e3,.e2=0,.e3=0},(Vector){.e1=57909100e3,.e2=0,.e3=0}};
+	Vector momentum[] = {ZERO_VECTOR,(Vector){.e1=0,.e2=13.07e3 * mass[1],.e3=0},(Vector){.e1=0,.e2=24.077e3 * mass[2],.e3=0},(Vector){.e1=0,.e2=47.87e3 * mass[3],.e3=0}};
 	
 	gravsys = buildSystem(mass,radius,position,momentum,body_count);
 	
