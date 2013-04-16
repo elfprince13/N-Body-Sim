@@ -1,63 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
 
-#include "zpr.h"
-
-#define DIMS 2
-#define MAX_DIMS 3
-#define TICK_MEMORY 10/*00000*/
-#define TICKS_PER 100
-
-
-// Assume this is correct for now :)
-#define EPSILON 2.22044604925031308e-16
-#define sqEP 1.4901161193847656e-08
-// in m^3 / (kg * s^2)
-#define G 6.67384e-11
-
-#define ALL_BODIES -1
-
-#define X_START 0
-#define P_START 3
-#define MASS 6
-#define RADIUS 7
-
-
-#define LEFTH 0
-#define RIGHTH 4
-#define UPPERH 2
-#define LOWERH 0
-#define ALLQ 8
-
-#define ZERO_VECTOR (Vector){.e1=0, .e2=0, .e3=0}
-#define SET_NO_CHILDREN(node)	node->children[0][0] = NULL; \
-								node->children[0][1] = NULL; \
-								node->children[1][0] = NULL; \
-								node->children[1][1] = NULL
-
-#define HAS_NO_CHILDREN(node)	(node->children[0][0] == NULL && \
-								 node->children[0][1] == NULL && \
-								 node->children[1][0] == NULL && \
-								 node->children[1][1] == NULL)
-
-#define FREE_CHILDREN(node)	node->children[0][0] = freeTree(node->children[0][0]); \
-							node->children[0][1] = freeTree(node->children[0][1]); \
-							node->children[1][0] = freeTree(node->children[1][0]); \
-							node->children[1][1] = freeTree(node->children[1][1])
-
-#define MAKE_CHILDREN(node)	node->children[0][0] = initInQuad(node,LOWERH | LEFTH); \
-							node->children[0][1] = initInQuad(node,UPPERH | LEFTH); \
-							node->children[1][0] = initInQuad(node,LOWERH | RIGHTH); \
-							node->children[1][1] = initInQuad(node,UPPERH | RIGHTH)
-
-#define IS_DUMMY(body) (isnan(body.r))
-
-/*
-#define DOUBLEQ -1
-#define HALFQ 0.5
-#define SAMEQ 0
-//*/
+#include "GravSim.h"
+//#include "NaiveIntegrator.h"
+#include "RungeKutta.h"
+#include "QuadTree.h"
+#include "Constants.h"
 
 static double _matrix[16];
 GLdouble * getMatrix()
@@ -66,12 +14,12 @@ GLdouble * getMatrix()
 	return _matrix;
 }
 
-double determinant(const GLdouble *m)
+double determinant4x4(const GLdouble *m)
 {
-/* NB. OpenGL Matrices are COLUMN major. */
+	/* NB. OpenGL Matrices are COLUMN major. */
 #define MAT(m,r,c) (m)[(c)*4+(r)]
-
-/* Here's some shorthand converting standard (row,column) to index. */
+	
+	/* Here's some shorthand converting standard (row,column) to index. */
 #define m11 MAT(m,0,0)
 #define m12 MAT(m,0,1)
 #define m13 MAT(m,0,2)
@@ -88,48 +36,56 @@ double determinant(const GLdouble *m)
 #define m42 MAT(m,3,1)
 #define m43 MAT(m,3,2)
 #define m44 MAT(m,3,3)
-
-   GLdouble d12, d13, d23, d24, d34, d41;
-   GLdouble tmp[16]; /* Allow out == in. */
-
-   /* Inverse = adjoint / det. (See linear algebra texts.)*/
-
-   /* pre-compute 2x2 dets for last two rows when computing */
-   /* cofactors of first two rows. */
-   d12 = (m31*m42-m41*m32);
-   d13 = (m31*m43-m41*m33);
-   d23 = (m32*m43-m42*m33);
-   d24 = (m32*m44-m42*m34);
-   d34 = (m33*m44-m43*m34);
-   d41 = (m34*m41-m44*m31);
-
-   tmp[0] =  (m22 * d34 - m23 * d24 + m24 * d23);
-   tmp[1] = -(m21 * d34 + m23 * d41 + m24 * d13);
-   tmp[2] =  (m21 * d24 + m22 * d41 + m24 * d12);
-   tmp[3] = -(m21 * d23 - m22 * d13 + m23 * d12);
-
-   /* Compute determinant as early as possible using these cofactors. */
-   return m11 * tmp[0] + m12 * tmp[1] + m13 * tmp[2] + m14 * tmp[3];
+	
+	GLdouble d12, d13, d23, d24, d34, d41;
+	GLdouble tmp[16]; /* Allow out == in. */
+	
+	/* Inverse = adjoint / det. (See linear algebra texts.)*/
+	
+	/* pre-compute 2x2 dets for last two rows when computing */
+	/* cofactors of first two rows. */
+	d12 = (m31*m42-m41*m32);
+	d13 = (m31*m43-m41*m33);
+	d23 = (m32*m43-m42*m33);
+	d24 = (m32*m44-m42*m34);
+	d34 = (m33*m44-m43*m34);
+	d41 = (m34*m41-m44*m31);
+	
+	tmp[0] =  (m22 * d34 - m23 * d24 + m24 * d23);
+	tmp[1] = -(m21 * d34 + m23 * d41 + m24 * d13);
+	tmp[2] =  (m21 * d24 + m22 * d41 + m24 * d12);
+	tmp[3] = -(m21 * d23 - m22 * d13 + m23 * d12);
+	
+	/* Compute determinant as early as possible using these cofactors. */
+	return m11 * tmp[0] + m12 * tmp[1] + m13 * tmp[2] + m14 * tmp[3];
+#undef MAT
+#undef m11
+#undef m12
+#undef m13
+#undef m14
+#undef m21
+#undef m22
+#undef m23
+#undef m24
+#undef m31
+#undef m32
+#undef m33
+#undef m34
+#undef m41
+#undef m42
+#undef m43
+#undef m44
 }
-
-//--------------------------------------------------
-// Typedefs
-//--------------------------------------------------
-typedef struct{double e1;double e2;double e3;} Vector;
-typedef struct{Vector x; Vector p; double m; double r;} Body;
-typedef double (*NHamiltonian)(Body ** bodies, int n, int which);
-typedef struct{NHamiltonian hamiltonian; int n; Body ** bodies;} State;
-typedef struct{Vector lowX; Vector highX; } AABB;
-typedef struct _qtNode{ AABB bounds; Body * contents; /* contents may be virtual */ struct _qtNode * parent; struct _qtNode * children [2] [2]; } QuadTree;
 
 
 //--------------------------------------------------
 // System parameters
 //--------------------------------------------------
 static State gravsys;
-static int body_count = 4;
+static NGradient gradient;
+/*static*/ int body_count = 11;
 
-static double dt = 10;//.1;
+/*static*/ double dt = 10;//.1;
 static double t = 0;
 static double end_time = /*100000000;*/ 3.74336e8; //for jupiter or 7.6005e6 for mercury;
 
@@ -144,287 +100,38 @@ static double * positions;
 static double * sizes;
 static int * bodyIndices;
 
+static RKMethod rkMethod = (RKMethod){
+	.tableau = NULL,
+	.init_tableau = NULL,
+	.integrate = NULL,
+	.stages = 0
+};
 
 
-double * getBFieldRef(Body * b,int field){
-	double * ret;
-	switch(field){
-		case 0: ret = &(b->x.e1); break;
-		case 1: ret = &(b->x.e2); break;
-		case 2: ret = &(b->x.e3); break;
-		case 3: ret = &(b->p.e1); break;
-		case 4: ret = &(b->p.e2); break;
-		case 5: ret = &(b->p.e3); break;
-		case 6: ret = &(b->m); break;
-		case 7: ret = &(b->r); break;
-		default:
-			printf("Error in getBFieldRef(): %d is not a valid field specifier\n",field);
-			ret = NULL;
-	}
-	return ret;
-}
 
-double	getBField(Body * b,int field){	return *getBFieldRef(b, field);	}
-void	setBField(Body * b,int field, double val){	*getBFieldRef(b, field) = val;	}
-void	difBField(Body * b,int field, double val){	*getBFieldRef(b, field) += val;	}
-
-double * getVFieldRef(Vector * v,int field){
-	double * ret;
-	switch(field){
-		case 0: ret = &(v->e1); break;
-		case 1: ret = &(v->e2); break;
-		case 2: ret = &(v->e3); break;
-		default:
-			printf("Error in getVFieldRef(): %d is not a valid field specifier\n",field);
-			ret = NULL;
-	}
-	return ret;
-}
-
-double	getVField(Vector * v,int field){	return *getVFieldRef(v, field);	}
-void	setVField(Vector * v,int field, double val){	*getVFieldRef(v, field) = val;	}
-void	difVField(Vector * v,int field, double val){	*getVFieldRef(v, field) += val;	}
-
-Vector sum(const Vector v1, const Vector v2){	return (Vector){.e1=v1.e1+v2.e1,.e2=v1.e2+v2.e2,.e3=v1.e3+v2.e3};	}
-Vector diff(const Vector v1, const Vector v2){	return (Vector){.e1=v1.e1-v2.e1,.e2=v1.e2-v2.e2,.e3=v1.e3-v2.e3};}
-Vector scale(const double s, const Vector v1){	return (Vector){.e1=s*v1.e1,.e2=s*v1.e2,.e3=s*v1.e3};	}
-double dot(const Vector v1, const Vector v2){	return (v1.e1*v2.e1) + (v1.e2*v2.e2) + (v1.e3*v2.e3);	}
-double mag(const Vector v1){	return sqrt(v1.e1 * v1.e1 + v1.e2 * v1.e2 + v1.e3 * v1.e3);	}
-Vector norm(const Vector v1){	return scale(1/mag(v1),v1);	}
-const char * stringify(const Vector v1, char * buf){	sprintf(buf,"%G %G %G",v1.e1,v1.e2,v1.e3); return buf;	}
-
-double max(double f1, double f2){ return (f1 > f2)*f1 + (f1 <= f2)*f2;	}
-double min(double f1, double f2){ return (f1 > f2)*f2 + (f1 <= f2)*f1;	}
-
-void copyVector(double * data, Vector * v, int * index)
-{	for(int i = 0; i < MAX_DIMS; (*index)++, i++){	data[(*index)] = getVField(v,i);	}	}
-double smaller(double f){ return f * 1e-10; }
-void copyVectorSmaller(double * data, Vector * v, int * index)
-{	Vector sml = scale(smaller(1),*v);
-	copyVector(data, &sml, index);	}
-
-AABB makeNullBB()
-{
-	AABB nanBB = (AABB){.lowX = (Vector){.e1 = NAN, .e2 = NAN, .e3 = NAN},
-		.highX = (Vector){.e1 = NAN, .e2 = NAN, .e3 = NAN}};
-	for(int i = DIMS; i < MAX_DIMS; i++) setVField(&(nanBB.lowX), i, 0),setVField(&(nanBB.highX), i, 0);
-	return nanBB;
-}
-
-int intersectsAABB(AABB * bb, Vector * v)
-{
-
-	// Not necessarily centered, so much add and substract;
-	int ret = 1;
-	for(int i = 0; ret && i < DIMS; i++ )
-		ret	= ret	&&	getVField(v,i) < getVField(&(bb->highX), i)
-					&&	getVField(v,i) > getVField(&(bb->lowX), i);
-	return	ret;
-}
-
-Vector dim(AABB * bb){
-	Vector dim = ZERO_VECTOR;
-	for(int i = 0; i < DIMS; i++ ) setVField(&dim, i, getVField(&(bb->highX), i) - getVField(&(bb->lowX), i));
-	return dim;
-}
-
-Vector mid(AABB * bb)
-{
-	double hx, lx;
-	Vector mid = ZERO_VECTOR;
-	for(int i = 0; i < DIMS; i++){
-		lx = getVField(&(bb->lowX), i), hx = getVField(&(bb->highX), i);
-		setVField(&mid, i, lx + (hx - lx)/2);
-	}
-	return mid;
-}
-
-void redimAABB(AABB * bb, AABB * fixed, Vector * mag)
-{
-	AABB tmp = *fixed;
-	double nmn,nmx,omn,omx;
-	for(int i = 0; i < DIMS; i++){
-		nmn = getVField(&(bb->lowX), 0);
-		nmx = getVField(&(bb->highX), 0);
-		omn = getVField(&(fixed->lowX), 0);
-		omx = getVField(&(fixed->highX), 0);
-		if(nmn == omn){
-			setVField(&(tmp.lowX), i, omn);
-			setVField(&(tmp.highX), i, omn+getVField(mag, i));
-		} else if(nmx == omx){
-				setVField(&(tmp.highX), i, omx);
-				setVField(&(tmp.lowX), i, omx-getVField(mag, i));
-		} else{
-			printf("Error in redimAABB(): one of %G or %G should be 0\n",fabs(nmn-omn),fabs(nmx-omx));
-			exit(EXIT_FAILURE);
-		}
-	}
-	*bb = tmp;
-}
-
-void updateAABB(AABB * bb, Vector * v)
-{
-	double x,l,h;
-	for(int i = 0; i < DIMS; i++)
-	{
-		x = getVField(v, i);
-		l = getVField(&(bb->lowX), i);
-		h = getVField(&(bb->highX), i);
-		if(x < l || isnan(l)) setVField(&(bb->lowX), i, x - sqEP);
-		if(x > h || isnan(h)) setVField(&(bb->highX), i, x + sqEP);
-	}
-}
-
-Vector barycenter(Body * b1, Body * b2)
-{
-	return scale((1/(b1->m + b2->m)),sum(scale(b1->m, b1->x),scale(b2->m, b2->x)));
-}
-
-Vector corner(Vector *v1, Vector *v2, int quad)
-{
-	Vector corner = ZERO_VECTOR;
-	for(int i = 0; i < DIMS; i++){
-		setVField(&corner, i, ((quad >> (MAX_DIMS - i - 1)) & 0x1) ?	max(getVField(v1, i),getVField(v2, i)) :
-																		min(getVField(v1, i),getVField(v2, i)));
-	}
-	return corner;
-}
-
-void updateMasses(QuadTree * node, Body * b)
-{
-	
-	if(node->contents != NULL)
-	{
-		Body *ob = node->contents;
-		Vector nbc = barycenter(ob,b);
-		double nm = ob->m + b->m;
-		
-		// Don't *ever* do this to a real body
-		// Only virtual bodies for interior nodes
-		ob->x = nbc;
-		ob->p = sum(ob->p,b->p);
-		ob->m = nm;
-	} else {
-		node->contents = b;
-	}
-}
-
-Body* getDummyBody()
-{
-	Body * b = calloc(1,sizeof(Body));
-	b->m = 0;
-	b->r = NAN;
-	b->x = ZERO_VECTOR;
-	b->p = ZERO_VECTOR;
-	return b;
-}
-
-void returnDummyBody(QuadTree * qt)
-{
-	// If this happens a lot, make a dummy-body pool
-	if(qt->contents != NULL && IS_DUMMY( (*(qt->contents)) )){
-		free(qt->contents);
-		qt->contents = NULL;
-	}
-}
-
-QuadTree * freeTree(QuadTree * node)
-{
-	if(node != NULL)
-	{
-		returnDummyBody(node);
-		FREE_CHILDREN(node);
-		free(node);
-	}
-	return NULL;
-}
-
-QuadTree * initEmptyQuad()
-{
-	QuadTree * ret = calloc(1, sizeof(QuadTree));
-	SET_NO_CHILDREN(ret);
-	ret->parent = NULL;
-	ret->bounds = makeNullBB();
-	ret->contents = NULL;
-	return ret;
-	
-}
-
-QuadTree * initInQuad(QuadTree * node, int quad)
-{
-	QuadTree * ret = initEmptyQuad();
-	ret->parent = node;
-	Vector m = mid(&(node->bounds));
-	Vector c = ZERO_VECTOR;
-	Vector lx = ZERO_VECTOR;
-	Vector hx = ZERO_VECTOR;
-	for(int i = 0; i < DIMS; i++){
-		setVField(&c, i, getVField(((quad >> (MAX_DIMS - i - 1)) & 0x1) ? &(node->bounds.highX) : &(node->bounds.lowX),i));
-		setVField(&lx, i, min(getVField(&m, i),getVField(&c, i)));
-		setVField(&hx, i, max(getVField(&m, i),getVField(&c, i)));
-	}
-	ret->bounds = (AABB){.lowX = lx, .highX = hx};
-	return ret;
-	
-	
-}
-
-void initChildren(QuadTree * node)
-{
-	MAKE_CHILDREN(node);
-	
-}
-
-void insertBody(QuadTree*,Body*);
-void splitNode(QuadTree * node, Body * b)
-{
-	Body * oldb = node->contents;
-	initChildren(node);
-	node->contents = getDummyBody();
-	Vector nmid = mid(&(node->bounds));
-	
-	insertBody(node->children[(oldb->x.e1 > nmid.e1)][(oldb->x.e2 > nmid.e2)], oldb);
-	insertBody(node->children[(b->x.e1 > nmid.e1)][(b->x.e2 > nmid.e2)], b);
-}
-
-void insertBody(QuadTree * node, Body * b)
-{
-	if(node->contents == NULL){
-		node->contents = b;
-		if(node->parent != NULL) updateMasses(node->parent, b);
-	}
-	else if(HAS_NO_CHILDREN(node)) {
-		// Nobody here but us chickens
-		splitNode(node, b);
-	} else{
-			Vector nmid = mid(&(node->bounds));
-			insertBody(node->children	[(b->x.e1 > nmid.e1)]
-										[(b->x.e2 > nmid.e2)], b);
-	}
-}
-
-
-Vector gradient(State s,int n,int kind)
+Vector numericalGradient(State * s,int n,int kind)
 {
 	Vector grad = ZERO_VECTOR;
 	double H_l,H_h,h,e;
-	Body * b = s.bodies[n];
+	Body ** bodies = s->bodies;
+	Body * b = bodies[n];
 	Body midpoint = *b;
 	Body m_l, m_h;
+	double h0 = s->hamiltonian(s,n);
 	for(int i = kind; i < kind + DIMS; i++){
-		h = fabs(sqEP * (sqEP + getBField(b,i)));		
+		h = /**/fabs(sqEP * (sqEP + getBField(b,i)));/**//*sqEP * sqrt(sqrt(sqEP+fabs(h0))*fabs(sqEP + getBField(b,i)))*/;
 		m_l = midpoint;
 		m_h = midpoint;
 		difBField(&m_l,i,-h);
 		difBField(&m_h,i,h);
-		s.bodies[n] = &m_l;
+		bodies[n] = &m_l;
 		
-		H_l = s.hamiltonian(s.bodies,s.n,n);
-		s.bodies[n] = &m_h;
-		H_h = s.hamiltonian(s.bodies,s.n,n);
+		H_l = s->hamiltonian(s,n);
+		bodies[n] = &m_h;
+		H_h = s->hamiltonian(s,n);
 		
 		setVField(&grad,i%MAX_DIMS,(H_h - H_l) / (2*h));
-		s.bodies[n] = b;
+		bodies[n] = b;
 	}
 	return grad;
 }
@@ -432,9 +139,13 @@ Vector gradient(State s,int n,int kind)
 // The selector allows us to determine whether we want a single body or the whole system
 // This should speed up differentiation by an order of N, since we may neglect terms
 // which will not vary.
-double newtonianGravitation(Body * bodies[], int n, int which){
+double newtonianGravitation(State * s, int which){
 	double H = 0;
 	double H_i = 0;
+	
+	Body ** bodies = s->bodies;
+	int n = s->n;
+	
 	int istart = (which < 0) ? 0 : which;
 	int iend = (which < 0) ? n : which + 1;
 	int jend, i, j;
@@ -450,11 +161,54 @@ double newtonianGravitation(Body * bodies[], int n, int which){
 	return H;
 }
 
+Vector newtonianGravitationGradient(State * s, int which, int kind){
+	Body ** bodies = s->bodies;
+	int n = s->n;
+	int i = which;
+	int j;
+	Vector ret,gvec,lvec,dvec;
+	double inmag,gm;
+	gm = bodies[i]->m;
+	switch(kind){
+		case X_START:
+			ret = ZERO_VECTOR;
+			gvec = bodies[i]->x;
+			for (j  = !i ? 1 : 0; j < n; j = (j+1 == i) ? j + 2 : j + 1)
+			{
+				lvec = bodies[j]->x;
+				dvec = diff(lvec,gvec);
+				inmag = 1/mag(dvec);
+				ret = sum(ret,scale(gm*(bodies[j]->m)*inmag*inmag*inmag,dvec));
+			}
+			ret = scale(-G,ret);
+			break;
+		case P_START:
+			gvec = bodies[i]->p;
+			ret = scale(1/(gm),gvec);
+			break;
+		default:
+			printf("Error in newtonianGravitationGradient():  %d is not a valid specifier for kind\n",kind);
+	}
+	return ret;
+}
+
+Body bDeriv(State * s, int which, Body * testpos)
+{
+	Body ret = (Body){.x = ZERO_VECTOR, .p = ZERO_VECTOR, .m = testpos->m, .r = testpos-> r};
+	Body * opos = s->bodies[which];
+	s->bodies[which] = testpos;
+	
+	ret.x = gradient(s,which,P_START);
+	ret.p = scale(-1,gradient(s,which,X_START));
+
+	s->bodies[which] = opos;
+	return ret;
+}
 
 State buildSystem(double m[], double r[], Vector x[], Vector p[], int n){
 	Body ** bodies = (Body**)calloc(sizeof(Body*),n);
 	for(int i = 0; i < n; i++)	*(bodies[i] = (Body*)calloc(sizeof(Body),1)) = (Body){.x=x[i],.p=p[i],.m=m[i],.r=r[i]};
-	return (State){.hamiltonian = &newtonianGravitation,.n = n,.bodies = bodies};
+	return (State){.hamiltonian = &newtonianGravitation,.analyticalGradient = /*NULL*//**/&newtonianGravitationGradient/**/,.n = n,.bodies = bodies};
 }
 
 int teardownSystem(State s){
@@ -464,12 +218,15 @@ int teardownSystem(State s){
 	return 0;
 }
 
+void setIntegrator(TableauGen);
+
 void stepSys(int n){
 	double h_tot;
-	Vector xdot[body_count],pdot[body_count];
+	Body deltaBodies[body_count];
+	//Vector xdot[body_count],pdot[body_count];
 	//char buf[64][64];
 	for(;t < end_time && n > 0; t += dt, oline = (oline + 1) % operiod, ooline = (ooline + !oline) % ooperiod, n--){
-		h_tot = gravsys.hamiltonian(gravsys.bodies,gravsys.n,ALL_BODIES);
+		h_tot = gravsys.hamiltonian(&gravsys,ALL_BODIES);
 		h_drift = h_init - h_tot;
 		if(!oline){
 			/*printf("%G %G %G %s %s %s %s %s %s\n",t,h_tot,h_drift,
@@ -488,13 +245,26 @@ void stepSys(int n){
 			}
 		}
 		for(int i = 0; i < body_count; i++){
-			xdot[i] = scale(dt,gradient(gravsys,i,P_START));
-			pdot[i] = scale(-dt,gradient(gravsys,i,X_START));
+			/*setIntegrator(init_PRK6);
+			Body b1 = rkMethod.integrate(&gravsys,i,bDeriv,&rkMethod);
+			setIntegrator(init_RK4);
+			Body b2 = rkMethod.integrate(&gravsys,i,bDeriv,&rkMethod);
+			setIntegrator(init_ForwardEuler);
+			Body b3 = rkMethod.integrate(&gravsys,i,bDeriv,&rkMethod); */
+			//printf("%X %X %X",&b1, &b2,&b3);
+			/*
+			Vector xdota,xdotn,pdota,pdotn;
+			xdotn = numericalGradient(&gravsys, i, X_START);
+			xdota = newtonianGravitationGradient(&gravsys, i, X_START);
+			pdotn = numericalGradient(&gravsys, i, P_START);
+			pdota = newtonianGravitationGradient(&gravsys, i, P_START); */
+			deltaBodies[i] = rkMethod.integrate(&gravsys,i,bDeriv,&rkMethod);
+
 		}
 		for(int i = 0; i < body_count; i++){
 			for(int j = 0; j < DIMS; j++){
-				difBField(gravsys.bodies[i],X_START+j,getVField(&xdot[i],j));
-				difBField(gravsys.bodies[i],P_START+j,getVField(&pdot[i],j));
+				difBField(gravsys.bodies[i],X_START+j,getBField(&deltaBodies[i],X_START+j));
+				difBField(gravsys.bodies[i],P_START+j,getBField(&deltaBodies[i],P_START+j));
 			}
 		}
 	}
@@ -513,7 +283,7 @@ void stepSys(int n){
 void drawSys()
 {
 	static float colors[3] = {0.9,0.3,0.6};
-	double scale = pow(determinant(getMatrix()),1/3.);
+	double scale = pow(determinant4x4(getMatrix()),1/3.);
 	int toDraw = ((t / dt) / operiod > ooperiod) ? ooperiod : ooline;
 	
 	glEnable(GL_POINT_SMOOTH);
@@ -528,7 +298,7 @@ void drawSys()
 	{
 		glPushName(i);
 		glColor3f(colors[i%3],colors[(i+1)%3],colors[(i+2)%3]);
-		glPointSize(2);//sizes[i]*scale);
+		glPointSize(5);//sizes[i]*scale);
 		glDrawArrays(GL_POINTS,i*TICK_MEMORY,toDraw);
 		glPopName();
 	}
@@ -564,7 +334,7 @@ void drawTree(QuadTree * node,int depth)
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glVertexPointer(3,GL_DOUBLE,0,verts);
 	glColor3f(colors[depth%10],colors[(depth+1)%10],colors[(depth+2)%10]);
-	glLineWidth(1);
+	glLineWidth(3);
 	glDrawElements(GL_LINE_STRIP, 5, GL_UNSIGNED_BYTE, indices);
 	glDisableClientState(GL_VERTEX_ARRAY);
 	
@@ -623,12 +393,77 @@ void pick(GLint name)
    fflush(stdout);
 }
 
+
+void setIntegrator(TableauGen name){
+	
+	double **a, **A, *b,*B,*c,*C,*d;
+	
+	if(rkMethod.init_tableau == init_ForwardEuler || rkMethod.init_tableau == init_RK4){
+		((StandardTableau*)rkMethod.tableau)->tfree(rkMethod.tableau);
+	}
+	if(rkMethod.init_tableau == init_GLRK4){
+		((NonSingularImplicitTableau*)rkMethod.tableau)->tfree(rkMethod.tableau);
+	}
+	if(rkMethod.init_tableau == init_PRK6){
+		((PartitionedTableau*)rkMethod.tableau)->tfree(rkMethod.tableau);
+	}
+	
+	int stages;
+	if(name == init_ForwardEuler || name == init_RK4){
+		stages = (name == init_ForwardEuler) ? 1 : 4;
+		StandardTableau * st = malloc(sizeof(StandardTableau));
+		
+		a = makeDynamic2DArray(stages, stages);
+		b = malloc(stages*sizeof(double));
+		c = malloc(stages*sizeof(double));
+		
+		*st = (StandardTableau){.a = a, .b = b, .c = c, .tfree = free_StandardRK};
+		
+		rkMethod = (RKMethod){
+			.init_tableau = name,
+			.tableau = (void*)(st),
+			.integrate = integrate_RK,
+			.stages = stages,
+		};
+	} else if(name == init_PRK6){
+		stages = 6;
+		PartitionedTableau * st = malloc(sizeof(PartitionedTableau));
+		
+		a = makeDynamic2DArray(stages, stages);
+		b = malloc(stages*sizeof(double));
+		c = malloc(stages*sizeof(double));
+		A = makeDynamic2DArray(stages, stages);
+		B = malloc(stages*sizeof(double));
+		C = malloc(stages*sizeof(double));
+		*st = (PartitionedTableau){.a = a, .b = b, .c = c,.A = A, .B = B, .C = C, .tfree = free_PartitionedRK};
+		rkMethod = (RKMethod){
+			.init_tableau = name,
+			.tableau = (void*)(st),
+			.integrate = integrate_PRK,
+			.stages = stages
+		};
+		
+	} else {
+		rkMethod = (RKMethod){
+			.init_tableau = NULL,
+			.tableau = NULL,
+			.integrate = NULL,
+			.stages = 0,
+		};
+	}
+	
+	if(rkMethod.init_tableau != NULL){
+		rkMethod.init_tableau(rkMethod.tableau);
+	}
+}
+
 /* Entry point */
 
 int main(int argc, char *argv[])
 {
 	
-
+	
+	setIntegrator(init_ForwardEuler);
 	
     /* Initialise GLUT and create a window */
 
@@ -657,13 +492,43 @@ int main(int argc, char *argv[])
 	positions = calloc(body_count*MAX_DIMS*TICK_MEMORY,sizeof(double));
 	sizes = calloc(body_count,sizeof(double));
 	bodyIndices = calloc(2*body_count,sizeof(int));
+	// Sun, Jupiter,Io,Callisto,Europa,Ganymede, Mercury, Venus, Earth, Mars
+	double mass[] = {1.9891e30,1.8986e27,
+		8.9319e22,1.075938e23,4.7998e22,1.4819e23, //Jovian moons
+		3.3022e23, 4.8685e24,5.9736e24,7.3477e22, 6.4185e23}; // Inner planets and Earth-moon
+	double radius[] = {696342e3,69911e3,
+		1821.3e3,2410.3e3,1560.8e3,2634.1e3, // Jovian moons
+		2439.7e3,6051.8e3,6371e3,1737.1e3,3386e3}; /// Inner planets and Earth-moon
+	Vector position[] = {ZERO_VECTOR,(Vector){.e1=778547200e3,.e2=0,.e3=0},
+		// Jovian Moons
+		(Vector){.e1=778547200e3+421700e3,.e2=0,.e3=0},
+		(Vector){.e1=778547200e3+1882700e3,.e2=0,.e3=0},
+		(Vector){.e1=778547200e3+670900e3,.e2=0,.e3=0},
+		(Vector){.e1=778547200e3+1070400e3,.e2=0,.e3=0},
+		// Inner Planets and Earth-moon
+		(Vector){.e1=57909100e3,.e2=0,.e3=0},
+		(Vector){.e1=108208000e3,.e2=0,.e3=0},
+		(Vector){.e1=149598261e3,.e2=0,.e3=0},
+		(Vector){.e1=149598261e3+384399e3,.e2=0,.e3=0},
+		
+		
+		(Vector){.e1=227939100e3,.e2=0,.e3=0}};
+	Vector momentum[] = {ZERO_VECTOR,(Vector){.e1=0,.e2=13.07e3 * mass[1],.e3=0},
+		// Jovian Moons
+		(Vector){.e1=0,.e2=(13.07e3+17.334e3) * mass[2],.e3=0},
+		(Vector){.e1=0,.e2=(13.07e3+8.204e3) * mass[3],.e3=0},
+		(Vector){.e1=0,.e2=(13.07e3+13.740e3) * mass[4],.e3=0},
+		(Vector){.e1=0,.e2=(13.07e3+10.880e3) * mass[5],.e3=0},
+		// Inner Planets and Earth-moon
+		(Vector){.e1=0,.e2=47.87e3 * mass[6],.e3=0},
+		(Vector){.e1=0,.e2=35.02e3 * mass[7],.e3=0},
+		(Vector){.e1=0,.e2=29.78e3 * mass[8],.e3=0},
+		(Vector){.e1=0,.e2=(29.78e3+1.022e3) * mass[9],.e3=0},
 	
-	double mass[] = {1.9891e30,1.8986e27,6.4185e23,3.3022e23};
-	double radius[] = {696342e3,69911e3,3386e3,2439.7e3};
-	Vector position[] = {ZERO_VECTOR,(Vector){.e1=778547200e3,.e2=0,.e3=0},(Vector){.e1=227939100e3,.e2=0,.e3=0},(Vector){.e1=57909100e3,.e2=0,.e3=0}};
-	Vector momentum[] = {ZERO_VECTOR,(Vector){.e1=0,.e2=13.07e3 * mass[1],.e3=0},(Vector){.e1=0,.e2=24.077e3 * mass[2],.e3=0},(Vector){.e1=0,.e2=47.87e3 * mass[3],.e3=0}};
+		(Vector){.e1=0,.e2=24.077e3 * mass[10],.e3=0}};
 	
 	gravsys = buildSystem(mass,radius,position,momentum,body_count);
+	gradient = (gravsys.analyticalGradient == NULL) ? &numericalGradient : gravsys.analyticalGradient ;
 	
 	printf("System initialized \n");
 	
@@ -671,7 +536,7 @@ int main(int argc, char *argv[])
 	dt = 1000;
 	t = 0;
 	end_time = 3e9;//3.74336e8; //for jupiter or 7.6005e6 for mercury;
-	h_init = gravsys.hamiltonian(gravsys.bodies,gravsys.n,ALL_BODIES);
+	h_init = gravsys.hamiltonian(&gravsys,ALL_BODIES);
 	printf("Initial energy %f\n",h_init);
 	
 	operiod = (int)max(round(100/dt),1);
@@ -684,6 +549,8 @@ int main(int argc, char *argv[])
     /* Enter GLUT event loop */
 	printf("Launching GLUT mainloop\n");
     glutMainLoop();
+	
+	setIntegrator(NULL);
 
     return EXIT_SUCCESS;
 }
