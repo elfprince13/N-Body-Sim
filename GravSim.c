@@ -100,6 +100,9 @@ static double * positions;
 static double * sizes;
 static int * bodyIndices;
 
+static int follow = -1;
+static double fzoom = 1;
+
 static RKMethod rkMethod = (RKMethod){
 	.tableau = NULL,
 	.init_tableau = NULL,
@@ -363,8 +366,19 @@ void tdisplay(int done)
    GLERROR;
 
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
 	// printf("Stepping time from %f\n",t);
 	stepSys(TICKS_PER);
+
+	if(follow > -1){
+		//getMatrix();
+		glLoadIdentity();
+		glScalef(.008,.008,.008);
+		Vector x = gravsys.bodies[follow]->x;
+		glTranslated(-smaller(x.e1)*fzoom,-smaller(x.e2)*fzoom,-smaller(x.e3)*fzoom);
+		glScalef(fzoom,fzoom,fzoom);
+		
+	}
 	//printf("Drawing system\n");
 	drawSys();
 	
@@ -377,6 +391,7 @@ void tdisplay(int done)
 	testnode=NULL;
 	//*/
 	drawTime();
+
 	//printf("next frame\n\n");
    glutSwapBuffers();
 
@@ -457,6 +472,23 @@ void setIntegrator(TableauGen name){
 	}
 }
 
+void KeyHandler(unsigned char key, int x, int y){
+	switch(key){
+		case ' ':
+			follow = (follow+2)%(body_count+1) - 1;
+			if(follow < 0) fzoom = 1;
+			printf("following %d\n",follow);
+			break;
+		case '-':
+			fzoom /= 1.4;
+			break;
+		case '=':
+			fzoom *= 1.4;
+		default:
+			0;//printf("%c was pressed\n",key);
+	}
+}
+
 /* Entry point */
 
 int main(int argc, char *argv[])
@@ -476,6 +508,7 @@ int main(int argc, char *argv[])
 
     glutDisplayFunc(display);
 	glutTimerFunc(17,tdisplay,t >= end_time);
+	glutKeyboardFunc(KeyHandler);
 
     glScalef(.008,.008,.008);
 
