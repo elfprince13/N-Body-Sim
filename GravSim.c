@@ -525,7 +525,10 @@ int main(int argc, char *argv[])
 	positions = calloc(body_count*MAX_DIMS*TICK_MEMORY,sizeof(double));
 	sizes = calloc(body_count,sizeof(double));
 	bodyIndices = calloc(2*body_count,sizeof(int));
-	// Sun, Jupiter,Io,Callisto,Europa,Ganymede, Mercury, Venus, Earth, Mars
+	// Sun, Jupiter,
+	// Io,Callisto,Europa,Ganymede,
+	// Mercury, Venus, Earth, Mars
+	
 	double mass[] = {1.9891e30,1.8986e27,
 		8.9319e22,1.075938e23,4.7998e22,1.4819e23, //Jovian moons
 		3.3022e23, 4.8685e24,5.9736e24,7.3477e22, 6.4185e23}; // Inner planets and Earth-moon
