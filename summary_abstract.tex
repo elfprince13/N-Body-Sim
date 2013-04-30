@@ -1,0 +1,123 @@
+ 
+\documentclass[10pt,twocolumn]{article}
+
+    \usepackage{fullpage}          %This will give you the standard 1in. margins, 12pt font, single spaced, page numbers, ect.  
+    \usepackage{url}                 %This is intended if you have a website in the bibliography
+    \usepackage{graphicx}         %This is if you want to include a picture in your document
+
+    \usepackage{amsmath, amsthm, amssymb}
+    \usepackage{epsfig}
+    \usepackage{pslatex}
+	\usepackage[font=small,labelfont=bf]{caption}
+
+    \title{$n$-Body Simulations of Newtonian Gravitation}
+    \author{Thomas Dickerson}
+    \begin{document}
+    \maketitle
+
+    \begin{abstract}
+    This document contains a summary of the work performed in completion of the requirements for the Saint Michael's
+	College Honors Program Senior Capstone Project in Physics. The topic for the project discussed herein concerns
+	techniques for the numerical simulation of $n$-body systems governed by Newtonian gravitational interactions.
+    \end{abstract}
+     
+    \section{Introduction}
+	\label{sec:introduction}
+	The goal of this project was to investigate techniques for the numerical simulation of $n$-body systems governed by
+	Newtonian gravitational interactions and their associated tradeoffs in the computational complexity and numerical precision
+	of such a simulation.
+	
+	While many special cases of this problem are well studied, with exact analytical solutions (for many $2$-body problems)
+	or good analytical approximations in certain limiting cases  (e.g. Keplerian motion when the system is dominated by a large central mass),
+	the goal of this project was to implement a general simulator for all $n$-body systems where Newtonian gravitational potentials provide a
+	good approximation of General Relativity. This potential is given by
+	\begin{equation}
+	U(x_{1} \cdots x_{n}) = G \sum^{n}_{j=1} \sum^{j-1}_{i=1} \frac{m_{i} m_{j}}{\left|x_{i} - x_{j}\right|}.
+	\end{equation}
+	
+	The works referenced in the bibliography provide a useful (though incomplete) starting point for developing the tools necessary
+	to work with such problems. See ~\cite{AbiaSanzSerna,BarnesHut,Brizard,SODEII,McLachlanAtela} for more information. \S\ref{sec:motivation}
+	discusses broadly the motivation for this investigation. \S\ref{sec:challenges} discusses the essential challenges to any such endeavour:
+	\S\ref{sec:complexity} discusses techniques for dealing with those challenges caused by the inherent computational complexity of
+	such problems, while \S\ref{sec:numerical} discusses techniques for dealing with those challenges whose source is in the inherent limitations
+	of numerical methods. \S\ref{sec:conclusion}
+	concludes this summary with a discussion of project outcomes.
+	
+	\section{Motivation}
+	\label{sec:motivation}
+	There are many possible motivating examples when dealing with $n$-body simulations in general, a significant number
+	of which are related to gravitation and celestial dynamics. Examples include studies of the long-term stability of the Solar System,
+	the eventual collision of the Milky Way and Andromeda galaxies, and a desire to make orbital predictions for Near-Earth Objects (NEOs)
+	to make sure we're safe from catastrophic impacts. Moreover, virtually all $n$-body problems are analytically intractable, and must
+	therefore be studied by numerical analysis and simulation. Newtonian gravitation provides a relatively simple test-bed for the development
+	of such numerical methods, and many of the lessons and techniques developed in its study may be applied to more complex interaction
+	potentials (for example, those in which relativistic effects must be accounted for).
+	
+	
+	\section{Challenges}
+	\label{sec:challenges}
+	The challenges in constructing such a simulation can broadly be classified into one of two categories: those stemming from
+	computational complexity, and those stemming from the inherent limitations of numerical methods. The computational complexity issue has a very straightforward source: the time required to simulate $n$ bodies is proportional to
+	the number of interactions between them. In principle, this allows for up to $n \times (n-1)$ distinct interactions, but Newton's
+	Third Law states that these must be pairwise symmetric between interacting bodies, reducing the total number of possible distinct
+	interactions to $\frac{n \times (n-1)}{2}$. While smaller, this quantity still has a complexity which is $O(n^{2})$. Thus the time required
+	to simulate a system grows much faster than the number of bodies being simulated.
+	The limitations of numerical methods also have a straightforward source: physical laws and quantities are real-valued,
+	and may require an infinite number of digits to express exactly, yet computing devices must operate under conditions of finite
+	time and memory. Therefore, every computation must be truncated to some fixed number of digits, and rounding errors are thus likely to
+	accumulate over time.
+	
+	\subsection{Dealing with Complexity}
+	\label{sec:complexity}
+	There are several approaches to dealing with the problems presented by the computational complexity of the problem. One answer is to
+	not try and deal with it, and count on Moore's Law to double your processing power a year and a half down the road. While $O(2^{n})$
+	growth certainly dominates $O(n^{2})$ growth, it is unclear how far into the future Moore's Law can continue, and even assuming it continues
+	indefinitely, it will be a long time before such a strategy can be cost effective. It does have the advantage of requiring no analytical
+	approximations about the problem (though the accuracy will still be bounded by numerical error).
+	
+	Most other approaches to dealing with the complexity issue rely on approximations where distant groups of bodies can be approximated
+	as a single object when calculating their effect on another body. The Barnes-Hut algorithm does this by imposing a spatial hierarchy
+	(for example a quad-tree or oct-tree data structure, depending on the dimensionality of the simulation), and requiring that leaf nodes contain
+	at most $1$ body. Parent nodes that are suitably distant from a body under consideration are then treated as a weighted sum over their children
+	(which is cached at each time step). This reduces the complexity to $O(n \times log(n))$ (where the base of the log is the number of children per node).
+	The Fast-Multipole Method can reduce the complexity further to a very desirable $O(n)$, and relies on multipole expansions of certain equations
+	related to the state of the system (i.e., Green's function, or the vector Helmholtz equation, depending on implementation and the interactions
+	under consideration).
+	
+	\subsection{Dealing with Numerical Limitations}
+	\label{sec:numerical}
+	Numerical integration and differentiation in particular are limiting factors in the accuracy of individual steps in an $n$-body simulation.
+	The straightforward approach is to use the conventional limit definitions of these operations (Eq. \ref{eq:limderiv} and Eq. \ref{eq:limint}), and instead of taking those limits
+	to $\infty$ or $0$, respectively, take them to values which are finitely large or small, respectively.
+	\begin{equation}
+	\label{eq:limderiv}
+	f'(x) = \lim_{h \to 0} \frac{f(a+h)-f(a)}{h}
+	\end{equation}
+	\begin{equation}
+	\label{eq:limint}
+	\int^{a}_{b} f(x) dx = \lim_{n \to \infty} \sum^{n}_{i=1} f(x_{i})\left(\frac{b-a}{n}\right)
+	\end{equation}
+	Doing so, yields the Riemann sum and (forward) finite difference approximations of these operations. Unfortunately, these na\"\i ve methods
+	accumulate error linearly, in proportion to dt and to h. Slight improvements may be had by use of centered formulas, but errors will nonetheless
+	accumulate quickly. Methods which retain higher order terms can be constructed to try and correct for the problem of undershooting
+	(or overshooting) an estime, and, when well constructed, explicitly cancel lower-order errors. While such methods (e.g.
+	the standard Runge-Kutta fourth-order method) have excellent accuracy, and so should do an excellent job of energy conservation,
+	they tell us little about long-term preservation of qualitative features of the system. Energy conservation is well and good,
+	but long term analysis is for naught without some surety that, for example, bounded orbits will stay bound. Thankfully a class of numerical
+	methods known as symplectic integrators may be used for this purpose. Symplectic integrators may stretch or skew orbital features in phase space,
+	but remain resistant to tearing of these features, even in the face of very long timesteps. However, it must always be kept in mind that
+	higher quality numerical methods will require additional calculations of inter-body interactions (the primary expense in simulation), and so
+	these too present a significant speed/accuracy tradeoff.
+	
+	\section{Results \& Conclusions}
+	\label{sec:conclusion}
+	The software developed for this project implements both the brute-force pairwise calculation of interactions, and the Barnes-Hut algorithm ~\cite{GravSim}.
+	It also implements several different numerical methods for integration, and provides both numerical and analytic calculations of derivatives.
+	It is currently incomplete, but the final version and some data for quantitative comparison of the relevant speed/accuracy tradeoffs should
+	be available in time for the final presentation during exam week (May 7, 2013).
+
+
+    \bibliography{summarybib}
+    \bibliographystyle{plain}
+\end{document}
+
