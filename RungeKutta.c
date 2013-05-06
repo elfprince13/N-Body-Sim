@@ -14,18 +14,23 @@ void free_GLRK4(void * tableau){
 }
 
 void free_StandardRK(void * tableau){
-	NonSingularImplicitTableau * nsit = (NonSingularImplicitTableau *)tableau;
-	if(nsit->a != NULL) free(nsit->a);
-	if(nsit->b != NULL) free(nsit->b);
-	if(nsit->c != NULL) free(nsit->c);
-	free(nsit);
+	StandardTableau * st = (StandardTableau *)tableau;
+	if(st->a != NULL) free(st->a);
+	if(st->b != NULL) free(st->b);
+	if(st->c != NULL) free(st->c);
+	free(st);
 }
 void free_PartitionedRK(void * tableau){
-	NonSingularImplicitTableau * nsit = (NonSingularImplicitTableau *)tableau;
-	if(nsit->a != NULL) free(nsit->a);
-	if(nsit->b != NULL) free(nsit->b);
-	if(nsit->c != NULL) free(nsit->c);
-	free(nsit);
+	PartitionedTableau * pt = (PartitionedTableau *)tableau;
+	if(pt->a != NULL) free(pt->a);
+	if(pt->b != NULL) free(pt->b);
+	/*
+	if(pt->c != NULL) free(pt->c);
+	if(pt->A != NULL) free(pt->A);
+	if(pt->B != NULL) free(pt->B);
+	if(pt->C != NULL) free(pt->C);
+	 //*/
+	free(pt);
 }
 
 void init_GLRK4(void * tableau){
@@ -93,6 +98,7 @@ void init_RK4(void * tableau){
 }
 
 void init_PRK6(void * tableau){
+	/*
 	double **a = ((PartitionedTableau *)tableau)->a;
 	double *b = ((PartitionedTableau *)tableau)->b;
 	double *c = ((PartitionedTableau *)tableau)->c;
@@ -102,9 +108,10 @@ void init_PRK6(void * tableau){
 	
 	double d_[3];
 	double c_[3];
-	
+	 //*/
 	// +real solution to 12*z^4 - 24*z^2 + 16*z - 3 = 0
-	/*d[0] = (1/2.) * sqrt(8/3.+1/(3.*pow((2-sqrt(3)),(1/3.)))+ 1/3. * pow((2-sqrt(3)),(1/3.)) +8/sqrt(3 * (4-1/pow((2-sqrt(3)),(1/3.)) -pow((2-sqrt(3)),(1/3.)))))	-1/(2. * sqrt(3/(4-1/pow((2-sqrt(3)),(1/3.))-pow((2-sqrt(3)),(1/3.))))); */
+	 /*d[0] = (1/2.) * sqrt(8/3.+1/(3.*pow((2-sqrt(3)),(1/3.)))+ 1/3. * pow((2-sqrt(3)),(1/3.)) +8/sqrt(3 * (4-1/pow((2-sqrt(3)),(1/3.)) -pow((2-sqrt(3)),(1/3.)))))	-1/(2. * sqrt(3/(4-1/pow((2-sqrt(3)),(1/3.))-pow((2-sqrt(3)),(1/3.))))); */
+	/*
 	c_[2] = d_[0] = 0.9196615230173998570508976381533827895633;
 	c_[1] = d_[1] = 1.5050911349195523119693694258934572;
 	c_[0] = d_[2] = 1 - d_[0] - d_[1];
@@ -126,17 +133,62 @@ void init_PRK6(void * tableau){
 	for(int i = 0; i < 6; i++){
 		for(int j = 0; j < 6; j++){
 			if( i < 3){
-				a[i][j] = (j >= i) ? b[i] : 0;
-				A[i][j] = (j > i) ? B[i] : 0;
+				a[i][j] = (i >= j) ? b[j] : 0;
+				A[i][j] = (i > j) ? B[j] : 0;
 			} else{
-				a[i][j] = (j > i) ? b[i] : 0;
-				A[i][j] = (j >= i) ? B[i] : 0;
+				a[i][j] = (i > j) ? b[j] : 0;
+				A[i][j] = (i >= j) ? B[j] : 0;
 			}
 			c[j] += a[i][j];
 			C[j] += A[i][j];
+			printf("%.3f (%.3f)\t",a[i][j],A[i][j]);
 		}
+		printf("\n");
+		
 		
 	}
+	//*/
+	double *a = ((PartitionedTableau *)tableau)->a;
+	double *b = ((PartitionedTableau *)tableau)->b;
+	
+	/*
+	a[0] = 0.0502627644003922;
+	a[1] = 0.413514300428344;
+	a[2] = 0.0450798897943977;
+	a[3] = -0.188054853819569;
+	a[4] = 0.541960678450780;
+	a[5] = 1 - 2*(a[0]+a[1]+a[2]+a[3]+a[4]);
+
+	
+	b[0] = 0.148816447901042;
+	b[1] = -0.132385865767784;
+	b[2] = 0.067307604692185;
+	b[3] = 0.432666402578175;
+	b[4] = 0.5 - (b[0]+b[1]+b[2]+b[3]);
+	b[5] = 0;
+	printf("%f %f\n",a[0]+a[1]+a[2]+a[3]+a[4]+a[5],b[0]+b[1]+b[2]+b[3]+b[4]+b[5]);
+	//*/
+	
+	// Ruth 1990
+	a[0] = 0.339839625839110000;
+	a[1] =-0.088601336903027329;
+	a[2] = 0.5858564768259621188;
+	a[3] =-0.603039356536491888;
+	a[4] = 0.3235807965546976394;
+	a[5] = 0.4423637942197494587;
+	
+	b[0] = 0.1193900292875672758;
+	b[1] = 0.6989273703824752308;
+	b[2] =-0.1713123582716007754;
+	b[3] = 0.4012695022513534480;
+	b[4] = 0.0107050818482359840;
+	b[6] =-0.0589796254980311632;
+	//printf("hi\n");
+	//double as = a[0]+a[1]+a[2]+a[3]+a[4]+a[5];
+	//double bs = b[0]+b[1]+b[2]+b[3]+b[4]+b[5];
+	//printf("%f %f\n",0.f,0.f);
+	
+	
 }
 
 Body scaleDeltaBody(double s,Body * b){
@@ -162,14 +214,15 @@ Body integrate_RK(State * s, int which, ODE_RHS f, RKMethod * rkm){
 	// Autonomous, so we can neglect c!
 	for(int i = 0; i < stages; i++){
 		passthrough = ib;
-		for(int j = 0; j < stages; j++){
+		//printf("k_%d: ",i);
+		for(int j = 0; j < i; j++){
 			//printf("%f ",a[i][j]);
-			tmp_delta = scaleDeltaBody(dt*a[i][j],ibp);
+			tmp_delta = scaleDeltaBody(dt*a[i][j],&(k[j])); //ibp);
 			passthrough.x = sum(passthrough.x,tmp_delta.x);
 			passthrough.p = sum(passthrough.p,tmp_delta.p);
 		}
 		//printf("\n");
-		k[i] = f(s, which, &passthrough);//&(scaleDeltaBody(&k[i],b[i]));
+		k[i] = f(s, which, &passthrough,X_AND_P);//&(scaleDeltaBody(&k[i],b[i]));
 		passthrough = scaleDeltaBody(dt*b[i],&(k[i]));
 		ret.x = sum(ret.x,passthrough.x);
 		ret.p = sum(ret.p,passthrough.p);
@@ -179,6 +232,7 @@ Body integrate_RK(State * s, int which, ODE_RHS f, RKMethod * rkm){
 		
 }
 
+/*
 Body integrate_PRK(State * s, int which, ODE_RHS f, RKMethod * rkm){
 	int stages = rkm->stages;
 	Body k[stages],klc[stages],kuc[stages],passthrough,passthroughlc,passthroughuc,*ibp,ib;
@@ -198,19 +252,67 @@ Body integrate_PRK(State * s, int which, ODE_RHS f, RKMethod * rkm){
 	
 	// Autonomous, so we can neglect c!
 	for(int i = 0; i < stages; i++){
+		//passthroughuc = ib;
+		//passthroughlc = ib;
 		passthrough = ib;
-		for(int j = 0; j < stages; j++){
-			tmp_deltauc = scale(dt*A[i][j],ib.x);//scaleDeltaBody(dt*a[i][j],ibp);
-			tmp_deltalc = scale(dt*a[i][j],ib.p);
+		for(int j = 0; j <= i; j++){
+			//tmp_deltauc = scale(dt*A[i][j],(kuc[j].x));//ib.x);//scaleDeltaBody(dt*a[i][j],ibp);
+			//tmp_deltalc = scale(dt*a[i][j],(klc[j].p));//ib.p);
+			tmp_deltauc = scale(dt*A[i][j],(k[j].x));//ib.x);//scaleDeltaBody(dt*a[i][j],ibp);
+			tmp_deltalc = scale(dt*a[i][j],(k[j].p));//ib.p);
+			//passthroughuc.x = sum(passthroughuc.x,tmp_deltauc);
+			//passthroughlc.p = sum(passthroughlc.p,tmp_deltalc);
 			passthrough.x = sum(passthrough.x,tmp_deltauc);
 			passthrough.p = sum(passthrough.p,tmp_deltalc);
 		}
-		k[i] = f(s, which, &passthrough);//&(scaleDeltaBody(&k[i],b[i]));
+		//kuc[i] = f(s, which, &passthroughuc);//&(scaleDeltaBody(&k[i],b[i]));
+		//klc[i] = f(s, which, &passthroughlc);
+		k[i] = f(s, which, &passthrough,X_AND_P);
+		//passthrough.x = scale(dt*B[i],(kuc[i].x));
+		//passthrough.p = scale(dt*b[i],(klc[i].p));
 		passthrough.x = scale(dt*B[i],(k[i].x));
 		passthrough.p = scale(dt*b[i],(k[i].p));
 		ret.x = sum(ret.x,passthrough.x);
 		ret.p = sum(ret.p,passthrough.p);
 	}
+	return ret;
+	
+}
+ //*/
+
+
+Body integrate_PRK(State * s, int which, ODE_RHS f, RKMethod * rkm){
+	int stages = rkm->stages;
+	Body k[stages+2],ib,*ibp,tmp;
+	ibp = s->bodies[which];
+	ib = *ibp;
+	Body ret = (Body){.x = ZERO_VECTOR, .p = ZERO_VECTOR, .m = ib.m, .r = ib.r};
+	
+	PartitionedTableau * tableau = (PartitionedTableau *)(rkm->tableau);
+	
+	double *a = (tableau)->a;
+	double *b = (tableau)->b;
+	double as = a[0]+a[1]+a[2]+a[3]+a[4]+a[5];
+	double bs = b[0]+b[1]+b[2]+b[3]+b[4]+b[5];
+	
+	k[0] = ib;
+	k[1] = ib;
+	for(int i = 1; i <= stages; i++){
+		// This should be safe, as f(,,,X_START) depends only on p[i-1]
+		// and f(,,,P_START) depends only on x[i]
+		k[i+1] = k[i];
+		
+		tmp = f(s,which,&(k[i]), P_START);
+		tmp = scaleDeltaBody(dt*a[i-1], &tmp);
+		k[i].p = sum(k[i-1].p,tmp.p);
+		
+		tmp = f(s,which,&(k[i]), X_START);
+		tmp = scaleDeltaBody(dt*b[i-1], &tmp);
+		k[i+1].x = sum(k[i].x,tmp.x);
+	}
+	//return k[stages];
+	ret.p = diff(k[stages].p,ib.p);
+	ret.x = diff(k[stages+1].x,ib.x);
 	return ret;
 	
 }

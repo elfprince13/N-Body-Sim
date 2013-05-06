@@ -103,6 +103,34 @@ static int * bodyIndices;
 static int follow = -1;
 static double fzoom = 1;
 
+
+double tc_start = 0.0;
+double tc_end = 0.0;
+long frames = 0;
+char titlestring[200];
+double fps;
+
+
+void showFPS() {
+	
+    /*double t;
+    
+    // Get current time
+    t = .001*glutGet(GLUT_ELAPSED_TIME);  // Get number of seconds since glfwInit()
+						// Calculate and display FPS (frames per second) in title bar.
+    if( (t-t0) > 0.5 || frames == 0 )
+    {*/
+	fps = TICKS_PER / (tc_end - tc_start);//(double)frames / (t-t0);
+	//   t0 = t;
+    //    frames = 0;
+    //}
+    frames ++;
+	sprintf(titlestring, "(%.1f FPS)", fps);
+	glRasterPos2i(100,-100);
+	glColor3f(1.0f, 1.0f, 0.3f);
+	for(char *b=titlestring;*b;b++) glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, *b);
+}
+
 static RKMethod rkMethod = (RKMethod){
 	.tableau = NULL,
 	.init_tableau = NULL,
@@ -195,14 +223,14 @@ Vector newtonianGravitationGradient(State * s, int which, int kind){
 	return ret;
 }
 
-Body bDeriv(State * s, int which, Body * testpos)
+Body bDeriv(State * s, int which, Body * testpos, int kind)
 {
 	Body ret = (Body){.x = ZERO_VECTOR, .p = ZERO_VECTOR, .m = testpos->m, .r = testpos-> r};
 	Body * opos = s->bodies[which];
 	s->bodies[which] = testpos;
 	
-	ret.x = gradient(s,which,P_START);
-	ret.p = scale(-1,gradient(s,which,X_START));
+	ret.x = (kind == X_START || kind == X_AND_P) ? gradient(s,which,P_START) : ZERO_VECTOR;
+	ret.p = (kind == P_START || kind == X_AND_P) ? scale(-1,gradient(s,which,X_START)) : ZERO_VECTOR;
 
 	s->bodies[which] = opos;
 	return ret;
@@ -227,15 +255,17 @@ void stepSys(int n){
 	double h_tot;
 	Body deltaBodies[body_count];
 	//Vector xdot[body_count],pdot[body_count];
-	//char buf[64][64];
+	char buf[64][64];
 	for(;t < end_time && n > 0; t += dt, oline = (oline + 1) % operiod, ooline = (ooline + !oline) % ooperiod, n--){
 		h_tot = gravsys.hamiltonian(&gravsys,ALL_BODIES);
 		h_drift = h_init - h_tot;
 		if(!oline){
-			/*printf("%G %G %G %s %s %s %s %s %s\n",t,h_tot,h_drift,
+			//*
+			 printf("%G %G %G %s %s %s %s %s %s\n",t,h_tot,h_drift,
 						stringify(gravsys.bodies[0]->x,buf[0]),stringify(gravsys.bodies[0]->p,buf[1]),
 						stringify(gravsys.bodies[1]->x,buf[2]),stringify(gravsys.bodies[1]->p,buf[3]),
-						stringify(gravsys.bodies[2]->x,buf[4]),stringify(gravsys.bodies[2]->p,buf[5]));*/
+						stringify(gravsys.bodies[2]->x,buf[4]),stringify(gravsys.bodies[2]->p,buf[5]));
+			 //*/
 			
 			if(!ooline){
 				for(int i = 0; i < body_count; i++){
@@ -368,7 +398,9 @@ void tdisplay(int done)
    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	// printf("Stepping time from %f\n",t);
+	tc_start = .001*glutGet(GLUT_ELAPSED_TIME);
 	stepSys(TICKS_PER);
+	tc_end = .001*glutGet(GLUT_ELAPSED_TIME);
 
 	if(follow > -1){
 		//getMatrix();
@@ -391,6 +423,7 @@ void tdisplay(int done)
 	testnode=NULL;
 	//*/
 	drawTime();
+	showFPS();
 
 	//printf("next frame\n\n");
    glutSwapBuffers();
@@ -444,13 +477,13 @@ void setIntegrator(TableauGen name){
 		stages = 6;
 		PartitionedTableau * st = malloc(sizeof(PartitionedTableau));
 		
-		a = makeDynamic2DArray(stages, stages);
+		c = malloc(stages*sizeof(double));//makeDynamic2DArray(stages, stages);
 		b = malloc(stages*sizeof(double));
-		c = malloc(stages*sizeof(double));
+		/*c = malloc(stages*sizeof(double));
 		A = makeDynamic2DArray(stages, stages);
 		B = malloc(stages*sizeof(double));
-		C = malloc(stages*sizeof(double));
-		*st = (PartitionedTableau){.a = a, .b = b, .c = c,.A = A, .B = B, .C = C, .tfree = free_PartitionedRK};
+		C = malloc(stages*sizeof(double));*/
+		*st = (PartitionedTableau){.a = /*a*/c, .b = b,/* .c = c,.A = A, .B = B, .C = C, */.tfree = free_PartitionedRK};
 		rkMethod = (RKMethod){
 			.init_tableau = name,
 			.tableau = (void*)(st),
@@ -495,7 +528,9 @@ int main(int argc, char *argv[])
 {
 	
 	
-	setIntegrator(init_ForwardEuler);
+	//setIntegrator(init_ForwardEuler);
+	//setIntegrator(init_RK4);
+	setIntegrator(init_PRK6);
 	
     /* Initialise GLUT and create a window */
 

@@ -14,7 +14,7 @@
 #define ODE_RHS HamiltonsEquations
 typedef void (*TableauCleaner)(void*);
 typedef struct{ double **a; double *b; double *c; double *d; TableauCleaner tfree;} NonSingularImplicitTableau;
-typedef struct{ double **a; double *b; double *c; double **A; double *B; double *C; TableauCleaner tfree;} PartitionedTableau;
+typedef struct{ double /***/*a; double *b; /*double *c; double **A; double *B; double *C;*/ TableauCleaner tfree;} PartitionedTableau;
 typedef struct{ double **a; double *b; double *c; TableauCleaner tfree;} StandardTableau;
 
 struct _rkm;

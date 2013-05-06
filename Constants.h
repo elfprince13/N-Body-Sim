@@ -23,6 +23,7 @@
 
 #define ALL_BODIES -1
 
+#define X_AND_P -1
 #define X_START 0
 #define P_START 3
 #define MASS 6
@@ -44,7 +45,7 @@ typedef struct{Vector x; Vector p; double m; double r;} Body;
 // Forward declaration
 struct _state;
 typedef Vector (*NGradient)(struct _state * s, int which, int kind);
-typedef Body (*HamiltonsEquations)(struct _state * s, int which, Body * testpos);
+typedef Body (*HamiltonsEquations)(struct _state * s, int which, Body * testpos, int kind);
 typedef double (*NHamiltonian)(struct _state * s, int which);
 typedef struct _state{NHamiltonian hamiltonian; NGradient analyticalGradient; int n; Body ** bodies;} State;
 
