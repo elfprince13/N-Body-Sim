@@ -27,7 +27,9 @@ typedef struct _rkm{ void * tableau; TableauGen init_tableau; Integrator integra
 void init_ForwardEuler(void *);
 void init_GLRK4(void *);
 void init_RK4(void *);
-void init_PRK6(void *);
+void init_PRK6BlanesMoan(void *);
+void init_PRK6Ruth(void *);
+void init_PRK6SuzukiTrotter(void *);
 Body integrate_RK(State * s, int which, ODE_RHS f, RKMethod * rkm);
 Body integrate_PRK(State * s, int which, ODE_RHS f, RKMethod * rkm);
 

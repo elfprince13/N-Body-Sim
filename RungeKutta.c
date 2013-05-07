@@ -97,78 +97,35 @@ void init_RK4(void * tableau){
 	c[3] = a[3][0]+a[3][1]+a[3][2]+a[3][3];
 }
 
-void init_PRK6(void * tableau){
-	/*
-	double **a = ((PartitionedTableau *)tableau)->a;
-	double *b = ((PartitionedTableau *)tableau)->b;
-	double *c = ((PartitionedTableau *)tableau)->c;
-	double **A = ((PartitionedTableau *)tableau)->A;
-	double *B = ((PartitionedTableau *)tableau)->B;
-	double *C = ((PartitionedTableau *)tableau)->C;
-	
-	double d_[3];
-	double c_[3];
-	 //*/
-	// +real solution to 12*z^4 - 24*z^2 + 16*z - 3 = 0
-	 /*d[0] = (1/2.) * sqrt(8/3.+1/(3.*pow((2-sqrt(3)),(1/3.)))+ 1/3. * pow((2-sqrt(3)),(1/3.)) +8/sqrt(3 * (4-1/pow((2-sqrt(3)),(1/3.)) -pow((2-sqrt(3)),(1/3.)))))	-1/(2. * sqrt(3/(4-1/pow((2-sqrt(3)),(1/3.))-pow((2-sqrt(3)),(1/3.))))); */
-	/*
-	c_[2] = d_[0] = 0.9196615230173998570508976381533827895633;
-	c_[1] = d_[1] = 1.5050911349195523119693694258934572;
-	c_[0] = d_[2] = 1 - d_[0] - d_[1];
-	
-	b[0] = c_[0]/2;
-	b[1] = c_[1]/2;
-	b[2] = c_[2]/2;
-	b[3] = c_[2]/2;
-	b[4] = c_[1]/2;
-	b[5] = c_[0]/2;
-	
-	B[0] = d_[0]/2;
-	B[1] = d_[1]/2;
-	B[2] = d_[2]/2;
-	B[3] = d_[2]/2;
-	B[4] = d_[1]/2;
-	B[5] = d_[0]/2;
-	
-	for(int i = 0; i < 6; i++){
-		for(int j = 0; j < 6; j++){
-			if( i < 3){
-				a[i][j] = (i >= j) ? b[j] : 0;
-				A[i][j] = (i > j) ? B[j] : 0;
-			} else{
-				a[i][j] = (i > j) ? b[j] : 0;
-				A[i][j] = (i >= j) ? B[j] : 0;
-			}
-			c[j] += a[i][j];
-			C[j] += A[i][j];
-			printf("%.3f (%.3f)\t",a[i][j],A[i][j]);
-		}
-		printf("\n");
-		
-		
-	}
-	//*/
+
+
+void init_PRK6BlanesMoan(void * tableau)
+{
 	double *a = ((PartitionedTableau *)tableau)->a;
 	double *b = ((PartitionedTableau *)tableau)->b;
 	
-	/*
-	a[0] = 0.0502627644003922;
-	a[1] = 0.413514300428344;
-	a[2] = 0.0450798897943977;
-	a[3] = -0.188054853819569;
-	a[4] = 0.541960678450780;
-	a[5] = 1 - 2*(a[0]+a[1]+a[2]+a[3]+a[4]);
+	// Blanes & Moan, 2002
+	 a[0] = 0.0502627644003922;
+	 a[1] = 0.413514300428344;
+	 a[2] = 0.0450798897943977;
+	 a[3] = -0.188054853819569;
+	 a[4] = 0.541960678450780;
+	 a[5] = 1 - 2*(a[0]+a[1]+a[2]+a[3]+a[4]);
+	 
+	 
+	 b[0] = 0.148816447901042;
+	 b[1] = -0.132385865767784;
+	 b[2] = 0.067307604692185;
+	 b[3] = 0.432666402578175;
+	 b[4] = 0.5 - (b[0]+b[1]+b[2]+b[3]);
+	 b[5] = 0;
 
-	
-	b[0] = 0.148816447901042;
-	b[1] = -0.132385865767784;
-	b[2] = 0.067307604692185;
-	b[3] = 0.432666402578175;
-	b[4] = 0.5 - (b[0]+b[1]+b[2]+b[3]);
-	b[5] = 0;
-	printf("%f %f\n",a[0]+a[1]+a[2]+a[3]+a[4]+a[5],b[0]+b[1]+b[2]+b[3]+b[4]+b[5]);
-	//*/
-	
+}
+
+void init_PRK6Ruth(void * tableau){
+
+	double *a = ((PartitionedTableau *)tableau)->a;
+	double *b = ((PartitionedTableau *)tableau)->b;
 	// Ruth 1990
 	a[0] = 0.339839625839110000;
 	a[1] =-0.088601336903027329;
@@ -182,11 +139,32 @@ void init_PRK6(void * tableau){
 	b[2] =-0.1713123582716007754;
 	b[3] = 0.4012695022513534480;
 	b[4] = 0.0107050818482359840;
-	b[6] =-0.0589796254980311632;
-	//printf("hi\n");
-	//double as = a[0]+a[1]+a[2]+a[3]+a[4]+a[5];
-	//double bs = b[0]+b[1]+b[2]+b[3]+b[4]+b[5];
-	//printf("%f %f\n",0.f,0.f);
+	b[5] =-0.0589796254980311632;
+	
+}
+
+void init_PRK6SuzukiTrotter(void * tableau){
+	
+	double *a = ((PartitionedTableau *)tableau)->a;
+	double *b = ((PartitionedTableau *)tableau)->b;
+	
+	
+	// Suzuki-Trotter
+	//(velocity)
+	a[0] = 0.207245385897187868571177;
+	a[1] = 0.414490771794375737142354;
+	a[2] =-0.121736157691563605713531;
+	a[3] =-0.121736157691563605713531;
+	a[4] = 0.414490771794375737142354;
+	a[5] = 0.207245385897187868571177;
+	
+	//(acceleration)
+	b[0] = 0;
+	b[1] = 0.414490771794375737142354;
+	b[2] = 0.414490771794375737142354;
+	b[3] =-0.657963087177502948569416;
+	b[4] = 0.414490771794375737142354;
+	b[5] = 0.414490771794375737142354;
 	
 	
 }
@@ -292,8 +270,8 @@ Body integrate_PRK(State * s, int which, ODE_RHS f, RKMethod * rkm){
 	
 	double *a = (tableau)->a;
 	double *b = (tableau)->b;
-	double as = a[0]+a[1]+a[2]+a[3]+a[4]+a[5];
-	double bs = b[0]+b[1]+b[2]+b[3]+b[4]+b[5];
+	//double as = a[0]+a[1]+a[2]+a[3]+a[4]+a[5];
+	//double bs = b[0]+b[1]+b[2]+b[3]+b[4]+b[5];
 	
 	k[0] = ib;
 	k[1] = ib;
@@ -303,11 +281,11 @@ Body integrate_PRK(State * s, int which, ODE_RHS f, RKMethod * rkm){
 		k[i+1] = k[i];
 		
 		tmp = f(s,which,&(k[i]), P_START);
-		tmp = scaleDeltaBody(dt*a[i-1], &tmp);
+		tmp = scaleDeltaBody(dt*b[i-1], &tmp);
 		k[i].p = sum(k[i-1].p,tmp.p);
 		
 		tmp = f(s,which,&(k[i]), X_START);
-		tmp = scaleDeltaBody(dt*b[i-1], &tmp);
+		tmp = scaleDeltaBody(dt*a[i-1], &tmp);
 		k[i+1].x = sum(k[i].x,tmp.x);
 	}
 	//return k[stages];

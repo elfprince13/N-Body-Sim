@@ -5,6 +5,7 @@
 //#include "NaiveIntegrator.h"
 #include "RungeKutta.h"
 #include "QuadTree.h"
+#include "QTNodeList.h"
 #include "Constants.h"
 
 static double _matrix[16];
@@ -85,6 +86,9 @@ static State gravsys;
 static NGradient gradient;
 /*static*/ int body_count = 11;
 
+static double theta = 0.7;
+static QuadTree * primaryBHTree=NULL;
+
 /*static*/ double dt = 10;//.1;
 static double t = 0;
 static double end_time = /*100000000;*/ 3.74336e8; //for jupiter or 7.6005e6 for mercury;
@@ -137,6 +141,64 @@ static RKMethod rkMethod = (RKMethod){
 	.integrate = NULL,
 	.stages = 0
 };
+
+QuadTree * barnesHutIterator(State * s,QuadTree *root,int which){
+	static State * internalState = NULL;
+	static int n = -1;
+	static Body * curBody = NULL;
+	static QTList * todo = NULL;
+	static QTList * outl = NULL;
+	static QuadTree * internalRoot = NULL;
+	
+	if(which != n){
+		freeQTList(todo);
+		freeQTList(outl);
+		curBody = NULL;
+		internalRoot = root;
+		internalState = s;
+		n = which;
+		if(n != -1){
+			curBody = internalState->bodies[n];
+			todo = (QTList*)malloc(sizeof(QTList));
+			todo->head = NULL;
+			todo->tail = NULL;
+			outl = (QTList*)malloc(sizeof(QTList));
+			outl->head = NULL;
+			outl->tail = NULL;
+			append(todo, internalRoot);
+		} else{
+			todo = NULL;
+			outl = NULL;
+			return NULL;
+		}
+	}
+	
+	QuadTree * cur;
+	while(!isEmptyQTList(todo)){
+		cur = pophead(todo);
+		if(cur->contents == NULL)
+			continue;
+		
+		double l = mag(diff(cur->bounds.highX,cur->bounds.lowX));
+		double d = mag(diff(curBody->x,cur->contents->x));
+		if(/*intersectsAABB(&(cur->bounds), &(curBody->x)) ||*/ d <= l/theta){
+			if(!HAS_NO_CHILDREN(cur)){
+				append(todo,cur->children[0][0]);
+				append(todo,cur->children[0][1]);
+				append(todo,cur->children[1][0]);
+				append(todo,cur->children[1][1]);
+			} else if(cur->contents != NULL && !intersectsAABB(&(cur->bounds), &(curBody->x))){
+				append(outl,cur);
+				break;
+			}
+		} else{
+			append(outl,cur);
+			break;
+		}
+	}
+	
+	return pophead(outl);
+}
 
 
 
@@ -192,6 +254,33 @@ double newtonianGravitation(State * s, int which){
 	return H;
 }
 
+// The selector allows us to determine whether we want a single body or the whole system
+// This should speed up differentiation by an order of N, since we may neglect terms
+// which will not vary.
+double barnesHutGravitation(State * s, int which){
+	double H = 0;
+	double H_i = 0;
+	
+	Body ** bodies = s->bodies;
+	QuadTree * bhN = NULL;
+	int n = s->n;
+	double wfactor = (which < 0 ) ? 2 : 1;
+	
+	int istart = (which < 0) ? 0 : which;
+	int iend = (which < 0) ? n : which + 1;
+	int i;
+	for(i = istart; i < iend; i++){
+		H_i = 0;
+		while((bhN = barnesHutIterator(s, primaryBHTree, i)) != NULL){
+			H_i += bodies[i]->m * bhN->contents->m / mag(diff(bodies[i]->x,bhN->contents->x));
+		}
+		H_i = dot(bodies[i]->p,bodies[i]->p) / (2 * bodies[i]->m) - G*(H_i) / wfactor;
+		H += H_i;
+	}
+	barnesHutIterator(NULL,NULL,-1);
+	return H;
+}
+
 Vector newtonianGravitationGradient(State * s, int which, int kind){
 	Body ** bodies = s->bodies;
 	int n = s->n;
@@ -223,6 +312,37 @@ Vector newtonianGravitationGradient(State * s, int which, int kind){
 	return ret;
 }
 
+Vector barnesHutGravitationGradient(State * s, int which, int kind){
+	Body ** bodies = s->bodies;
+	int n = s->n;
+	int i = which;
+	QuadTree * bhN;
+	Vector ret,gvec,lvec,dvec;
+	double inmag,gm;
+	gm = bodies[i]->m;
+	switch(kind){
+		case X_START:
+			ret = ZERO_VECTOR;
+			gvec = bodies[i]->x;
+			while((bhN = barnesHutIterator(s, primaryBHTree, i)) != NULL){
+				lvec = bhN->contents->x;
+				dvec = diff(lvec,gvec);
+				inmag = 1/mag(dvec);
+				ret = sum(ret,scale(gm*(bhN->contents->m)*inmag*inmag*inmag,dvec));
+			}
+			barnesHutIterator(NULL,NULL,-1);
+			ret = scale(-G,ret);
+			break;
+		case P_START:
+			gvec = bodies[i]->p;
+			ret = scale(1/(gm),gvec);
+			break;
+		default:
+			printf("Error in newtonianGravitationGradient():  %d is not a valid specifier for kind\n",kind);
+	}
+	return ret;
+}
+
 Body bDeriv(State * s, int which, Body * testpos, int kind)
 {
 	Body ret = (Body){.x = ZERO_VECTOR, .p = ZERO_VECTOR, .m = testpos->m, .r = testpos-> r};
@@ -239,7 +359,7 @@ Body bDeriv(State * s, int which, Body * testpos, int kind)
 State buildSystem(double m[], double r[], Vector x[], Vector p[], int n){
 	Body ** bodies = (Body**)calloc(sizeof(Body*),n);
 	for(int i = 0; i < n; i++)	*(bodies[i] = (Body*)calloc(sizeof(Body),1)) = (Body){.x=x[i],.p=p[i],.m=m[i],.r=r[i]};
-	return (State){.hamiltonian = &newtonianGravitation,.analyticalGradient = /*NULL*//**/&newtonianGravitationGradient/**/,.n = n,.bodies = bodies};
+	return (State){.hamiltonian = /**/&barnesHutGravitation/**//*&newtonianGravitation*/,.analyticalGradient = /**/&barnesHutGravitationGradient/**//*NULL*//*&newtonianGravitationGradient*/,.n = n,.bodies = bodies};
 }
 
 int teardownSystem(State s){
@@ -253,11 +373,19 @@ void setIntegrator(TableauGen);
 
 void stepSys(int n){
 	double h_tot;
+	double h_tot2;
 	Body deltaBodies[body_count];
 	//Vector xdot[body_count],pdot[body_count];
 	char buf[64][64];
 	for(;t < end_time && n > 0; t += dt, oline = (oline + 1) % operiod, ooline = (ooline + !oline) % ooperiod, n--){
+		if(gravsys.hamiltonian == barnesHutGravitation){
+			primaryBHTree = initEmptyQuad();
+			for(int i = 0; i < body_count; updateAABB(&(primaryBHTree->bounds), &(gravsys.bodies[i++]->x)));
+			for(int i = 0; i < body_count; insertBody(primaryBHTree, gravsys.bodies[i++]));
+		}
+		
 		h_tot = gravsys.hamiltonian(&gravsys,ALL_BODIES);
+		h_tot2 = newtonianGravitation(&gravsys, ALL_BODIES);
 		h_drift = h_init - h_tot;
 		if(!oline){
 			//*
@@ -278,6 +406,7 @@ void stepSys(int n){
 			}
 		}
 		for(int i = 0; i < body_count; i++){
+			
 			/*setIntegrator(init_PRK6);
 			Body b1 = rkMethod.integrate(&gravsys,i,bDeriv,&rkMethod);
 			setIntegrator(init_RK4);
@@ -293,6 +422,10 @@ void stepSys(int n){
 			pdota = newtonianGravitationGradient(&gravsys, i, P_START); */
 			deltaBodies[i] = rkMethod.integrate(&gravsys,i,bDeriv,&rkMethod);
 
+		}
+		if(gravsys.hamiltonian == barnesHutGravitation){
+			freeTree(primaryBHTree);
+			primaryBHTree=NULL;
 		}
 		for(int i = 0; i < body_count; i++){
 			for(int j = 0; j < DIMS; j++){
@@ -390,7 +523,6 @@ void drawTime()
 }
 
 /* Callback functions for drawing */
-static QuadTree * testnode=NULL;
 void tdisplay(int done)
 {
    GLERROR;
@@ -415,12 +547,12 @@ void tdisplay(int done)
 	drawSys();
 	
 	//*
-	testnode = initEmptyQuad();
-	for(int i = 0; i < body_count; updateAABB(&(testnode->bounds), &(gravsys.bodies[i++]->x)));
-	for(int i = 0; i < body_count; insertBody(testnode, gravsys.bodies[i++]));
-	drawTree(testnode, 0);
-	freeTree(testnode);
-	testnode=NULL;
+	primaryBHTree = initEmptyQuad();
+	for(int i = 0; i < body_count; updateAABB(&(primaryBHTree->bounds), &(gravsys.bodies[i++]->x)));
+	for(int i = 0; i < body_count; insertBody(primaryBHTree, gravsys.bodies[i++]));
+	drawTree(primaryBHTree, 0);
+	freeTree(primaryBHTree);
+	primaryBHTree=NULL;
 	//*/
 	drawTime();
 	showFPS();
@@ -452,7 +584,7 @@ void setIntegrator(TableauGen name){
 	if(rkMethod.init_tableau == init_GLRK4){
 		((NonSingularImplicitTableau*)rkMethod.tableau)->tfree(rkMethod.tableau);
 	}
-	if(rkMethod.init_tableau == init_PRK6){
+	if(rkMethod.init_tableau == init_PRK6Ruth || rkMethod.init_tableau == init_PRK6SuzukiTrotter || rkMethod.init_tableau == init_PRK6BlanesMoan){
 		((PartitionedTableau*)rkMethod.tableau)->tfree(rkMethod.tableau);
 	}
 	
@@ -473,7 +605,7 @@ void setIntegrator(TableauGen name){
 			.integrate = integrate_RK,
 			.stages = stages,
 		};
-	} else if(name == init_PRK6){
+	} else if(name == init_PRK6Ruth || name == init_PRK6SuzukiTrotter || name == init_PRK6BlanesMoan){
 		stages = 6;
 		PartitionedTableau * st = malloc(sizeof(PartitionedTableau));
 		
@@ -526,11 +658,17 @@ void KeyHandler(unsigned char key, int x, int y){
 
 int main(int argc, char *argv[])
 {
-	
+	double dt_select[4] = {100,1000,10000,100000};
+	TableauGen integrator_select[4] = {init_ForwardEuler, init_RK4, init_PRK6Ruth, init_PRK6SuzukiTrotter};
+	NHamiltonian hamilton_select[2] = {newtonianGravitation, barnesHutGravitation};
+	NGradient gradient_select[2] = {newtonianGravitationGradient, barnesHutGravitationGradient};
+	int body_count;
 	
 	//setIntegrator(init_ForwardEuler);
 	//setIntegrator(init_RK4);
-	setIntegrator(init_PRK6);
+	//setIntegrator(init_PRK6Ruth);
+	//setIntegrator(init_PRK6SuzukiTrotter);
+	//setIntegrator(init_PRK6BlanesMoan);
 	
     /* Initialise GLUT and create a window */
 
@@ -607,7 +745,13 @@ int main(int argc, char *argv[])
 	dt = 1000;
 	t = 0;
 	end_time = 3e9;//3.74336e8; //for jupiter or 7.6005e6 for mercury;
+	primaryBHTree = initEmptyQuad();
+	for(int i = 0; i < body_count; updateAABB(&(primaryBHTree->bounds), &(gravsys.bodies[i++]->x)));
+	for(int i = 0; i < body_count; insertBody(primaryBHTree, gravsys.bodies[i++]));
+
 	h_init = gravsys.hamiltonian(&gravsys,ALL_BODIES);
+	freeTree(primaryBHTree);
+	primaryBHTree=NULL;
 	printf("Initial energy %f\n",h_init);
 	
 	operiod = (int)max(round(100/dt),1);

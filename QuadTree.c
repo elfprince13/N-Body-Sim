@@ -25,8 +25,8 @@ int intersectsAABB(AABB * bb, Vector * v)
 	// Not necessarily centered, so much add and substract;
 	int ret = 1;
 	for(int i = 0; ret && i < DIMS; i++ )
-		ret	= ret	&&	getVField(v,i) < getVField(&(bb->highX), i)
-		&&	getVField(v,i) > getVField(&(bb->lowX), i);
+		ret	= ret	&&	getVField(v,i) <= getVField(&(bb->highX), i)
+		&&	getVField(v,i) >= getVField(&(bb->lowX), i);
 	return	ret;
 }
 
