@@ -86,12 +86,14 @@ static State gravsys;
 static NGradient gradient;
 /*static*/ int body_count = 11;
 
-static double theta = 0.7;
+static double theta = 0.85;
 static QuadTree * primaryBHTree=NULL;
+int useBarnes = 0;
 
 /*static*/ double dt = 10;//.1;
 static double t = 0;
 static double end_time = /*100000000;*/ 3.74336e8; //for jupiter or 7.6005e6 for mercury;
+static double softening = 5000000000;
 
 static int operiod;
 static int  oline;
@@ -113,6 +115,7 @@ double tc_end = 0.0;
 long frames = 0;
 char titlestring[200];
 double fps;
+static int should_auto_exit;
 
 
 void showFPS() {
@@ -133,6 +136,7 @@ void showFPS() {
 	glRasterPos2i(100,-100);
 	glColor3f(1.0f, 1.0f, 0.3f);
 	for(char *b=titlestring;*b;b++) glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, *b);
+	//printf("%f\n",fps);
 }
 
 static RKMethod rkMethod = (RKMethod){
@@ -179,7 +183,8 @@ QuadTree * barnesHutIterator(State * s,QuadTree *root,int which){
 		if(cur->contents == NULL)
 			continue;
 		
-		double l = mag(diff(cur->bounds.highX,cur->bounds.lowX));
+		Vector boxSize = diff(cur->bounds.highX,cur->bounds.lowX);
+		double l = max(boxSize.e1,boxSize.e2);
 		double d = mag(diff(curBody->x,cur->contents->x));
 		if(/*intersectsAABB(&(cur->bounds), &(curBody->x)) ||*/ d <= l/theta){
 			if(!HAS_NO_CHILDREN(cur)){
@@ -257,6 +262,31 @@ double newtonianGravitation(State * s, int which){
 // The selector allows us to determine whether we want a single body or the whole system
 // This should speed up differentiation by an order of N, since we may neglect terms
 // which will not vary.
+double softNewtonianGravitation(State * s, int which){
+	double H = 0;
+	double H_i = 0;
+	
+	Body ** bodies = s->bodies;
+	int n = s->n;
+	
+	int istart = (which < 0) ? 0 : which;
+	int iend = (which < 0) ? n : which + 1;
+	int jend, i, j;
+	for(i = istart; i < iend; i++){
+		H_i = 0;
+		jend = (which < 0) ? i : n;
+		for(j  = !i ? 1 : 0; j < jend; j = (j+1 == i) ? j + 2 : j + 1){
+			H_i += bodies[i]->m * bodies[j]->m / (softening+ mag(diff(bodies[i]->x,bodies[j]->x)));
+		}
+		H_i = dot(bodies[i]->p,bodies[i]->p) / (2 * bodies[i]->m) - G*(H_i);
+		H += H_i;
+	}
+	return H;
+}
+
+// The selector allows us to determine whether we want a single body or the whole system
+// This should speed up differentiation by an order of N, since we may neglect terms
+// which will not vary.
 double barnesHutGravitation(State * s, int which){
 	double H = 0;
 	double H_i = 0;
@@ -273,6 +303,33 @@ double barnesHutGravitation(State * s, int which){
 		H_i = 0;
 		while((bhN = barnesHutIterator(s, primaryBHTree, i)) != NULL){
 			H_i += bodies[i]->m * bhN->contents->m / mag(diff(bodies[i]->x,bhN->contents->x));
+		}
+		H_i = dot(bodies[i]->p,bodies[i]->p) / (2 * bodies[i]->m) - G*(H_i) / wfactor;
+		H += H_i;
+	}
+	barnesHutIterator(NULL,NULL,-1);
+	return H;
+}
+
+// The selector allows us to determine whether we want a single body or the whole system
+// This should speed up differentiation by an order of N, since we may neglect terms
+// which will not vary.
+double softBarnesHutGravitation(State * s, int which){
+	double H = 0;
+	double H_i = 0;
+	
+	Body ** bodies = s->bodies;
+	QuadTree * bhN = NULL;
+	int n = s->n;
+	double wfactor = (which < 0 ) ? 2 : 1;
+	
+	int istart = (which < 0) ? 0 : which;
+	int iend = (which < 0) ? n : which + 1;
+	int i;
+	for(i = istart; i < iend; i++){
+		H_i = 0;
+		while((bhN = barnesHutIterator(s, primaryBHTree, i)) != NULL){
+			H_i += bodies[i]->m * bhN->contents->m / (softening + mag(diff(bodies[i]->x,bhN->contents->x)));
 		}
 		H_i = dot(bodies[i]->p,bodies[i]->p) / (2 * bodies[i]->m) - G*(H_i) / wfactor;
 		H += H_i;
@@ -298,6 +355,37 @@ Vector newtonianGravitationGradient(State * s, int which, int kind){
 				lvec = bodies[j]->x;
 				dvec = diff(lvec,gvec);
 				inmag = 1/mag(dvec);
+				ret = sum(ret,scale(gm*(bodies[j]->m)*inmag*inmag*inmag,dvec));
+			}
+			ret = scale(-G,ret);
+			break;
+		case P_START:
+			gvec = bodies[i]->p;
+			ret = scale(1/(gm),gvec);
+			break;
+		default:
+			printf("Error in newtonianGravitationGradient():  %d is not a valid specifier for kind\n",kind);
+	}
+	return ret;
+}
+
+Vector softNewtonianGravitationGradient(State * s, int which, int kind){
+	Body ** bodies = s->bodies;
+	int n = s->n;
+	int i = which;
+	int j;
+	Vector ret,gvec,lvec,dvec;
+	double inmag,gm;
+	gm = bodies[i]->m;
+	switch(kind){
+		case X_START:
+			ret = ZERO_VECTOR;
+			gvec = bodies[i]->x;
+			for (j  = !i ? 1 : 0; j < n; j = (j+1 == i) ? j + 2 : j + 1)
+			{
+				lvec = bodies[j]->x;
+				dvec = diff(lvec,gvec);
+				inmag = 1/(softening+mag(dvec));
 				ret = sum(ret,scale(gm*(bodies[j]->m)*inmag*inmag*inmag,dvec));
 			}
 			ret = scale(-G,ret);
@@ -343,6 +431,37 @@ Vector barnesHutGravitationGradient(State * s, int which, int kind){
 	return ret;
 }
 
+Vector softBarnesHutGravitationGradient(State * s, int which, int kind){
+	Body ** bodies = s->bodies;
+	int n = s->n;
+	int i = which;
+	QuadTree * bhN;
+	Vector ret,gvec,lvec,dvec;
+	double inmag,gm;
+	gm = bodies[i]->m;
+	switch(kind){
+		case X_START:
+			ret = ZERO_VECTOR;
+			gvec = bodies[i]->x;
+			while((bhN = barnesHutIterator(s, primaryBHTree, i)) != NULL){
+				lvec = bhN->contents->x;
+				dvec = diff(lvec,gvec);
+				inmag = 1/(softening+mag(dvec));
+				ret = sum(ret,scale(gm*(bhN->contents->m)*inmag*inmag*inmag,dvec));
+			}
+			barnesHutIterator(NULL,NULL,-1);
+			ret = scale(-G,ret);
+			break;
+		case P_START:
+			gvec = bodies[i]->p;
+			ret = scale(1/(gm),gvec);
+			break;
+		default:
+			printf("Error in newtonianGravitationGradient():  %d is not a valid specifier for kind\n",kind);
+	}
+	return ret;
+}
+
 Body bDeriv(State * s, int which, Body * testpos, int kind)
 {
 	Body ret = (Body){.x = ZERO_VECTOR, .p = ZERO_VECTOR, .m = testpos->m, .r = testpos-> r};
@@ -356,10 +475,10 @@ Body bDeriv(State * s, int which, Body * testpos, int kind)
 	return ret;
 }
 
-State buildSystem(double m[], double r[], Vector x[], Vector p[], int n){
+State buildSystem(NHamiltonian nh, NGradient ng, double m[], double r[], Vector x[], Vector p[], int n){
 	Body ** bodies = (Body**)calloc(sizeof(Body*),n);
 	for(int i = 0; i < n; i++)	*(bodies[i] = (Body*)calloc(sizeof(Body),1)) = (Body){.x=x[i],.p=p[i],.m=m[i],.r=r[i]};
-	return (State){.hamiltonian = /**/&barnesHutGravitation/**//*&newtonianGravitation*/,.analyticalGradient = /**/&barnesHutGravitationGradient/**//*NULL*//*&newtonianGravitationGradient*/,.n = n,.bodies = bodies};
+	return (State){.hamiltonian = nh,.analyticalGradient = ng,.n = n,.bodies = bodies};
 }
 
 int teardownSystem(State s){
@@ -373,27 +492,28 @@ void setIntegrator(TableauGen);
 
 void stepSys(int n){
 	double h_tot;
-	double h_tot2;
+	//double h_tot2;
 	Body deltaBodies[body_count];
 	//Vector xdot[body_count],pdot[body_count];
-	char buf[64][64];
+	//char buf[64][64];
 	for(;t < end_time && n > 0; t += dt, oline = (oline + 1) % operiod, ooline = (ooline + !oline) % ooperiod, n--){
-		if(gravsys.hamiltonian == barnesHutGravitation){
+		if(useBarnes){
 			primaryBHTree = initEmptyQuad();
 			for(int i = 0; i < body_count; updateAABB(&(primaryBHTree->bounds), &(gravsys.bodies[i++]->x)));
 			for(int i = 0; i < body_count; insertBody(primaryBHTree, gravsys.bodies[i++]));
 		}
 		
 		h_tot = gravsys.hamiltonian(&gravsys,ALL_BODIES);
-		h_tot2 = newtonianGravitation(&gravsys, ALL_BODIES);
+		//h_tot2 = newtonianGravitation(&gravsys, ALL_BODIES);
 		h_drift = h_init - h_tot;
 		if(!oline){
-			//*
+			/*
 			 printf("%G %G %G %s %s %s %s %s %s\n",t,h_tot,h_drift,
 						stringify(gravsys.bodies[0]->x,buf[0]),stringify(gravsys.bodies[0]->p,buf[1]),
 						stringify(gravsys.bodies[1]->x,buf[2]),stringify(gravsys.bodies[1]->p,buf[3]),
 						stringify(gravsys.bodies[2]->x,buf[4]),stringify(gravsys.bodies[2]->p,buf[5]));
 			 //*/
+			
 			
 			if(!ooline){
 				for(int i = 0; i < body_count; i++){
@@ -423,7 +543,7 @@ void stepSys(int n){
 			deltaBodies[i] = rkMethod.integrate(&gravsys,i,bDeriv,&rkMethod);
 
 		}
-		if(gravsys.hamiltonian == barnesHutGravitation){
+		if(useBarnes){
 			freeTree(primaryBHTree);
 			primaryBHTree=NULL;
 		}
@@ -556,12 +676,14 @@ void tdisplay(int done)
 	//*/
 	drawTime();
 	showFPS();
+	if(!done && t<=end_time && fps != INFINITY) printf("%G %G %G %G %f\n",t,h_init,h_init+h_drift,h_drift,fps);
 
 	//printf("next frame\n\n");
    glutSwapBuffers();
 
    GLERROR;
 	if(!done) glutTimerFunc(17,tdisplay,t >= end_time);
+	else if(done && t>=end_time && should_auto_exit) exit(0);
 }
 void display(){ tdisplay(1); /* Don't schedule extra timers */ }
 
@@ -569,8 +691,8 @@ void display(){ tdisplay(1); /* Don't schedule extra timers */ }
 
 void pick(GLint name)
 {
-   printf("Pick: %d\n",name);
-   fflush(stdout);
+	//printf("Pick: %d\n",name);
+	//fflush(stdout);
 }
 
 
@@ -658,17 +780,41 @@ void KeyHandler(unsigned char key, int x, int y){
 
 int main(int argc, char *argv[])
 {
-	double dt_select[4] = {100,1000,10000,100000};
 	TableauGen integrator_select[4] = {init_ForwardEuler, init_RK4, init_PRK6Ruth, init_PRK6SuzukiTrotter};
-	NHamiltonian hamilton_select[2] = {newtonianGravitation, barnesHutGravitation};
-	NGradient gradient_select[2] = {newtonianGravitationGradient, barnesHutGravitationGradient};
-	int body_count;
+	NHamiltonian hamilton_select[4] = {newtonianGravitation, barnesHutGravitation,
+										softNewtonianGravitation,softBarnesHutGravitation};
+	NGradient gradient_select[4] = {newtonianGravitationGradient, barnesHutGravitationGradient,
+									softNewtonianGravitationGradient,softBarnesHutGravitationGradient};
+	int body_setup;
+	double max_time_select, dt_select;
+	int auto_exit_select;
 	
-	//setIntegrator(init_ForwardEuler);
-	//setIntegrator(init_RK4);
-	//setIntegrator(init_PRK6Ruth);
-	//setIntegrator(init_PRK6SuzukiTrotter);
-	//setIntegrator(init_PRK6BlanesMoan);
+	int iselector,hselector;
+	
+	if(argc != 7 && argc != 1){
+		printf("Usage: %s body_setup dt max_time auto_exit integrator hamiltonian_impl\n",argv[0]);
+		exit(1);
+	} else if (argc == 7){
+		body_setup = atoi(argv[1]);
+		dt_select = atof(argv[2]);
+		max_time_select = atof(argv[3]);
+		auto_exit_select = atoi(argv[4]);
+		iselector = atoi(argv[5]);
+		hselector = atoi(argv[6]);
+		//printf("Selecting %d\n",hselector);
+	} else{
+		body_setup  = 0;
+		dt_select = 1000;
+		max_time_select = 3e9;
+		auto_exit_select = 0;
+		iselector = 0;
+		hselector = 0;
+	}
+	
+	useBarnes = hselector == 1 || hselector == 3;
+	
+	setIntegrator(integrator_select[iselector]);
+	should_auto_exit = auto_exit_select;
 	
     /* Initialise GLUT and create a window */
 
@@ -694,21 +840,27 @@ int main(int argc, char *argv[])
      /* Initialise OpenGL */
 
     GLERROR;
+	body_count = body_setup ? body_setup : 11;
 	
 	positions = calloc(body_count*MAX_DIMS*TICK_MEMORY,sizeof(double));
 	sizes = calloc(body_count,sizeof(double));
 	bodyIndices = calloc(2*body_count,sizeof(int));
+	
+	double * mass, * radius;
+	Vector * position, * momentum;
+	
+	if(!body_setup){
 	// Sun, Jupiter,
 	// Io,Callisto,Europa,Ganymede,
 	// Mercury, Venus, Earth, Mars
 	
-	double mass[] = {1.9891e30,1.8986e27,
+	double ssmass[] = {1.9891e30,1.8986e27,
 		8.9319e22,1.075938e23,4.7998e22,1.4819e23, //Jovian moons
 		3.3022e23, 4.8685e24,5.9736e24,7.3477e22, 6.4185e23}; // Inner planets and Earth-moon
-	double radius[] = {696342e3,69911e3,
+	double ssradius[] = {696342e3,69911e3,
 		1821.3e3,2410.3e3,1560.8e3,2634.1e3, // Jovian moons
 		2439.7e3,6051.8e3,6371e3,1737.1e3,3386e3}; /// Inner planets and Earth-moon
-	Vector position[] = {ZERO_VECTOR,(Vector){.e1=778547200e3,.e2=0,.e3=0},
+	Vector ssposition[] = {ZERO_VECTOR,(Vector){.e1=778547200e3,.e2=0,.e3=0},
 		// Jovian Moons
 		(Vector){.e1=778547200e3+421700e3,.e2=0,.e3=0},
 		(Vector){.e1=778547200e3+1882700e3,.e2=0,.e3=0},
@@ -722,37 +874,58 @@ int main(int argc, char *argv[])
 		
 		
 		(Vector){.e1=227939100e3,.e2=0,.e3=0}};
-	Vector momentum[] = {ZERO_VECTOR,(Vector){.e1=0,.e2=13.07e3 * mass[1],.e3=0},
+	Vector ssmomentum[] = {ZERO_VECTOR,(Vector){.e1=0,.e2=13.07e3 * ssmass[1],.e3=0},
 		// Jovian Moons
-		(Vector){.e1=0,.e2=(13.07e3+17.334e3) * mass[2],.e3=0},
-		(Vector){.e1=0,.e2=(13.07e3+8.204e3) * mass[3],.e3=0},
-		(Vector){.e1=0,.e2=(13.07e3+13.740e3) * mass[4],.e3=0},
-		(Vector){.e1=0,.e2=(13.07e3+10.880e3) * mass[5],.e3=0},
+		(Vector){.e1=0,.e2=(13.07e3+17.334e3) * ssmass[2],.e3=0},
+		(Vector){.e1=0,.e2=(13.07e3+8.204e3) * ssmass[3],.e3=0},
+		(Vector){.e1=0,.e2=(13.07e3+13.740e3) * ssmass[4],.e3=0},
+		(Vector){.e1=0,.e2=(13.07e3+10.880e3) * ssmass[5],.e3=0},
 		// Inner Planets and Earth-moon
-		(Vector){.e1=0,.e2=47.87e3 * mass[6],.e3=0},
-		(Vector){.e1=0,.e2=35.02e3 * mass[7],.e3=0},
-		(Vector){.e1=0,.e2=29.78e3 * mass[8],.e3=0},
-		(Vector){.e1=0,.e2=(29.78e3+1.022e3) * mass[9],.e3=0},
+		(Vector){.e1=0,.e2=47.87e3 * ssmass[6],.e3=0},
+		(Vector){.e1=0,.e2=35.02e3 * ssmass[7],.e3=0},
+		(Vector){.e1=0,.e2=29.78e3 * ssmass[8],.e3=0},
+		(Vector){.e1=0,.e2=(29.78e3+1.022e3) * ssmass[9],.e3=0},
 	
-		(Vector){.e1=0,.e2=24.077e3 * mass[10],.e3=0}};
-	
-	gravsys = buildSystem(mass,radius,position,momentum,body_count);
+		(Vector){.e1=0,.e2=24.077e3 * ssmass[10],.e3=0}};
+		
+		mass = ssmass;
+		radius = ssradius;
+		position = ssposition;
+		momentum = ssmomentum;
+	} else{
+		srand(body_count);
+		// This will leak. Oh well \_0_/
+		mass = calloc(body_count,sizeof(double));
+		radius = calloc(body_count,sizeof(double));
+		position = calloc(body_count,sizeof(Vector));
+		momentum = calloc(body_count,sizeof(Vector));
+		for(int i = 0; i < body_count; i++){
+			mass[i] = (rand()%10+1)*pow(10,rand()%7 + 23);
+			radius[i] = pow(mass[i],0.33333)/(rand()%5);
+			position[i] = (Vector){.e1=(rand()%2000-1000)*pow(10,rand()%2 + 8),.e2=(rand()%2000-1000)*pow(10,rand()%2 + 8),.e3=0};
+			momentum[i] = (Vector){.e1=(rand()%60-30)*mass[i],.e2=(rand()%60-30)*mass[i],.e3=0};
+		}
+	}
+	//printf("Now...\n");
+	gravsys = buildSystem(hamilton_select[hselector],gradient_select[hselector], mass,radius,position,momentum,body_count);
+	//printf("Selected %d\n",hselector);
 	gradient = (gravsys.analyticalGradient == NULL) ? &numericalGradient : gravsys.analyticalGradient ;
 	
-	printf("System initialized \n");
+	//printf("System initialized \n");
 	
 	
-	dt = 1000;
+	dt = dt_select;
 	t = 0;
-	end_time = 3e9;//3.74336e8; //for jupiter or 7.6005e6 for mercury;
-	primaryBHTree = initEmptyQuad();
-	for(int i = 0; i < body_count; updateAABB(&(primaryBHTree->bounds), &(gravsys.bodies[i++]->x)));
-	for(int i = 0; i < body_count; insertBody(primaryBHTree, gravsys.bodies[i++]));
-
+	end_time = max_time_select;//3.74336e8; //for jupiter or 7.6005e6 for mercury;
+	if(useBarnes){
+		primaryBHTree = initEmptyQuad();
+		for(int i = 0; i < body_count; updateAABB(&(primaryBHTree->bounds), &(gravsys.bodies[i++]->x)));
+		for(int i = 0; i < body_count; insertBody(primaryBHTree, gravsys.bodies[i++]));
+	}
 	h_init = gravsys.hamiltonian(&gravsys,ALL_BODIES);
-	freeTree(primaryBHTree);
+	if(useBarnes) freeTree(primaryBHTree);
 	primaryBHTree=NULL;
-	printf("Initial energy %f\n",h_init);
+	printf("%G %G %G %G %f\n",t,h_init,h_init+h_drift,h_drift,fps);
 	
 	operiod = (int)max(round(100/dt),1);
 	ooperiod = TICK_MEMORY;
@@ -762,7 +935,7 @@ int main(int argc, char *argv[])
 		bodyIndices[2*i+1] = i * MAX_DIMS * TICK_MEMORY;
 	}
     /* Enter GLUT event loop */
-	printf("Launching GLUT mainloop\n");
+	//printf("Launching GLUT mainloop\n");
     glutMainLoop();
 	
 	setIntegrator(NULL);
