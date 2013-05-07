@@ -676,7 +676,7 @@ void tdisplay(int done)
 	//*/
 	drawTime();
 	showFPS();
-	if(!done && t<=end_time && fps != INFINITY) printf("%G %G %G %G %f\n",t,h_init,h_init+h_drift,h_drift,fps);
+	//if(!done && t<=end_time && fps != INFINITY) printf("%G %G %G %G %f\n",t,h_init,h_init+h_drift,h_drift,fps);
 
 	//printf("next frame\n\n");
    glutSwapBuffers();

@@ -14,3 +14,9 @@ summary_abstract.bbl
 summary_abstract.blg
 
 summary_abstract.aux
+
+data
+
+data/*
+
+*.log
